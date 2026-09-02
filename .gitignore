@@ -141,3 +141,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# CLOTHO / Vinext local state
+.vinext/
+.wrangler/
+*.pem
+next-env.d.ts
