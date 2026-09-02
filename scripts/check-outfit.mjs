@@ -8,10 +8,13 @@ const first = buildOutfit(manifest.items, 'work', preferences, [], '2026-09-02')
 const repeated = buildOutfit(manifest.items, 'work', preferences, [], '2026-09-02');
 const noHat = buildOutfit(manifest.items, 'casual', { ...preferences, includeHeadwear: false }, [], '2026-09-03');
 const historyAware = buildOutfit(manifest.items, 'work', preferences, first.items.map((item) => item.id), '2026-09-02');
+const noteBaseline = buildOutfit(manifest.items, 'casual', preferences, [], '2026-09-02');
+const noteAware = buildOutfit(manifest.items, 'casual', { ...preferences, note: 'satin camisole' }, [], '2026-09-02');
 
 assert.equal(first.items.length, 4);
 assert.deepEqual(first, repeated, 'same inputs must produce the same outfit');
 assert.notDeepEqual(historyAware.items.map((item) => item.id), first.items.map((item) => item.id), 'wear history should lower recently worn items');
+assert.notEqual(noteAware.items.find((item) => item.category === 'tops')?.id, noteBaseline.items.find((item) => item.category === 'tops')?.id, 'taste notes should influence matching item terms');
 assert.equal(noHat.items.length, 3);
 assert.deepEqual(noHat.items.map((item) => item.category), ['tops', 'bottoms', 'shoes']);
 assert.ok(first.score >= 58 && first.score <= 97);

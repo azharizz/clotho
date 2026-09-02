@@ -90,6 +90,12 @@ function scoreItem(
   const avoid = preferences.avoid.trim().toLowerCase();
   if (avoid && text.includes(avoid)) score -= 100;
 
+  const noteTerms = (preferences.note ?? '').trim().toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
+  if (noteTerms.length) {
+    const noteMatches = noteTerms.filter((word) => text.includes(word)).length;
+    score += Math.min(6, noteMatches * 2);
+  }
+
   const family = colorFamily(item.color);
   if (preferences.palette === 'neutral' && family === 'neutral') score += 4;
   if (preferences.palette === 'colorful' && family !== 'neutral') score += 3;

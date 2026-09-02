@@ -397,6 +397,45 @@ export default function Home() {
     };
 
     register({
+      name: 'search_products',
+      title: 'Search the wardrobe catalog',
+      description: 'Search the wardrobe product catalog by item name, color, style, or category without changing the interface.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          category: { type: 'string', enum: ['tops', 'bottoms', 'shoes', 'headwear'] },
+          limit: { type: 'integer', minimum: 1, maximum: 44 },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute(input) {
+        const values = asRecord(input);
+        const query = validString(values.query, 'query').trim().toLowerCase();
+        const category = values.category === undefined ? undefined : validString(values.category, 'category');
+        if (category && !['tops', 'bottoms', 'shoes', 'headwear'].includes(category)) throw new Error('category must be tops, bottoms, shoes, or headwear.');
+        const limit = values.limit === undefined ? 12 : Number(values.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 44) throw new Error('limit must be an integer from 1 to 44.');
+        const terms = query.split(/\s+/).filter(Boolean);
+        const results = live.current.items
+          .filter((item) => {
+            if (category && item.category !== category) return false;
+            const text = `${item.id} ${item.category} ${item.name} ${item.color} ${item.style}`.toLowerCase();
+            return terms.every((term) => text.includes(term));
+          })
+          .slice(0, limit);
+        return {
+          query,
+          category: category ?? null,
+          count: results.length,
+          items: results.map(({ id, category: itemCategory, name, color, style, file }) => ({ id, category: itemCategory, name, color, style, file })),
+        };
+      },
+    });
+
+    register({
       name: 'suggest_outfit',
       title: 'Suggest an outfit',
       description: 'Select and visibly display one deterministic outfit from this wardrobe for an occasion and preferences.',
@@ -943,7 +982,7 @@ export default function Home() {
               {([{ value: 'balanced', label: 'Balanced', note: 'quiet contrast' }, { value: 'neutral', label: 'Mostly neutral', note: 'soft harmony' }, { value: 'colorful', label: 'More color', note: 'higher contrast' }] as { value: Palette; label: string; note: string }[]).map((choice) => <button className={`taste-choice ${preferences.palette === choice.value ? 'is-active' : ''}`} key={choice.value} onClick={() => updatePreferences({ ...preferences, palette: choice.value })} type="button"><span>{choice.label}</span><small>{choice.note}</small></button>)}
             </fieldset></div>
             <label className="taste-field taste-avoid"><span className="eyebrow">Avoid a color or style</span><input aria-label="Color or style to avoid" placeholder="e.g. orange" type="text" value={preferences.avoid} onChange={(event) => setPreferences({ ...preferences, avoid: event.target.value })} onBlur={(event) => updatePreferences({ ...preferences, avoid: event.currentTarget.value })} /><small>Applied when you leave the field; matching pieces drop out of the next score.</small></label>
-            <label className="taste-field taste-avoid"><span className="eyebrow">Personal taste note</span><input aria-label="Personal taste note" placeholder="e.g. relaxed tailoring, quiet layers" type="text" value={preferences.note} onChange={(event) => setPreferences({ ...preferences, note: event.target.value })} onBlur={(event) => updatePreferences({ ...preferences, note: event.currentTarget.value })} /><small>Saved with your taste for future WebMCP context; free-form prose is not scored yet.</small></label>
+            <label className="taste-field taste-avoid"><span className="eyebrow">Personal taste note</span><input aria-label="Personal taste note" placeholder="e.g. relaxed tailoring, quiet layers" type="text" value={preferences.note} onChange={(event) => setPreferences({ ...preferences, note: event.target.value })} onBlur={(event) => updatePreferences({ ...preferences, note: event.currentTarget.value })} /><small>Saved for WebMCP context; matching words gently influence the next ranking.</small></label>
             <label aria-label="Include headwear" className="taste-toggle"><span><span className="eyebrow">Headwear</span><small>Keep a fourth piece in the silhouette.</small></span><input checked={preferences.includeHeadwear} className="h-4 w-4 accent-[#972d3f]" onChange={(event) => updatePreferences({ ...preferences, includeHeadwear: event.target.checked })} type="checkbox" /></label>
             <p className="taste-note">Change a rule, then watch the current look change. Record a wear and the same pieces are gently deprioritized next time.</p>
           </div>
@@ -1020,7 +1059,7 @@ export default function Home() {
       {activePanel && <button className="panel-close text-link" onClick={() => setActivePanel(null)} type="button">Close panel ↘</button>}
       {activePanel && <button aria-label="Close by clicking outside the panel" className="panel-backdrop" onClick={() => setActivePanel(null)} type="button" />}
 
-      <footer className="border-t border-black/10 px-5 py-10 md:px-10 lg:px-16"><div className="mx-auto flex max-w-[1372px] flex-col justify-between gap-6 text-[10px] uppercase tracking-[.13em] text-black/45 sm:flex-row"><p>CLOTHO · Classy Looks for Occasion, Taste, History &amp; Outfits</p><p>WebMCP: suggest · batch · week · apply · schedule · remove · weather · record · prefer · recolor</p></div></footer>
+      <footer className="border-t border-black/10 px-5 py-10 md:px-10 lg:px-16"><div className="mx-auto flex max-w-[1372px] flex-col justify-between gap-6 text-[10px] uppercase tracking-[.13em] text-black/45 sm:flex-row"><p>CLOTHO · Classy Looks for Occasion, Taste, History &amp; Outfits</p><p>WebMCP: search · suggest · batch · week · apply · schedule · remove · weather · record · prefer · recolor</p></div></footer>
       <output aria-live="polite" className="sr-only">{status}</output>
     </main>
   );

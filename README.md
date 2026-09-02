@@ -23,7 +23,7 @@ Open `http://localhost:3000`. WebMCP is available when the site is opened in Cha
 - Wear history, taste preferences, free-form taste notes, and local browser persistence.
 - Batch outfit generation and review-first weekly planning with conflict/trade-off explanations.
 - Browser-canvas recoloring that reuses the same item in the wardrobe and outfit view.
-- WebMCP tools for suggesting, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, and recoloring.
+- WebMCP tools for searching, suggesting, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, and recoloring.
 
 ## Checks
 
