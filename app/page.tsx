@@ -411,7 +411,7 @@ export default function Home() {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute(input) {
+      execute: async (input) => {
         const values = asRecord(input);
         const query = validString(values.query, 'query').trim().toLowerCase();
         const category = values.category === undefined ? undefined : validString(values.category, 'category');
