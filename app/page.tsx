@@ -37,6 +37,12 @@ type ModelContextApi = {
   ) => void | Promise<void>;
 };
 
+declare global {
+  interface Document {
+    modelContext: ModelContextApi;
+  }
+}
+
 const defaultPreferences: Preferences = { palette: 'balanced', includeHeadwear: true, avoid: '', note: '' };
 const categoryLabels = { all: 'All 44', tops: 'Tops', bottoms: 'Bottoms', shoes: 'Shoes', headwear: 'Headwear' } as const;
 const occasionLabels: Record<Occasion, string> = { work: 'Work', casual: 'Casual day', dinner: 'Dinner', event: 'Special event' };
@@ -385,7 +391,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!items.length) return;
-    const context = (document as Document & { modelContext?: ModelContextApi }).modelContext;
+    const context = document.modelContext;
     if (!context?.registerTool) return;
     const lifecycle = new AbortController();
     const register = (tool: Parameters<ModelContextApi['registerTool']>[0]) => {
@@ -396,7 +402,8 @@ export default function Home() {
       }
     };
 
-    register({
+    try {
+      void Promise.resolve(document.modelContext.registerTool({
       name: 'search_products',
       title: 'Search the wardrobe catalog',
       description: 'Search the wardrobe product catalog by item name, color, style, or category without changing the interface.',
@@ -432,8 +439,10 @@ export default function Home() {
           count: results.length,
           items: results.map(({ id, category: itemCategory, name, color, style, file }) => ({ id, category: itemCategory, name, color, style, file })),
         };
-      },
-    });
+      }, { signal: lifecycle.signal })).catch(() => undefined);
+    } catch {
+      // WebMCP is optional; unsupported registration must not break CLOTHO.
+    }
 
     register({
       name: 'suggest_outfit',
