@@ -8,6 +8,9 @@ export type WardrobeItem = {
   style: string;
   sourceGrid: string;
   file: string;
+  variantOf?: string;
+  variantColor?: string;
+  imageSrc?: string;
 };
 
 export type Occasion = 'work' | 'casual' | 'dinner' | 'event';
@@ -66,6 +69,22 @@ function colorFamily(color: string) {
   if (neutralWords.some((word) => value.includes(word))) return 'neutral';
   if (warmWords.some((word) => value.includes(word))) return 'warm';
   if (coolWords.some((word) => value.includes(word))) return 'cool';
+  const match = value.match(/^#([0-9a-f]{6})$/i);
+  if (match) {
+    const [red, green, blue] = [0, 2, 4].map((offset) => Number.parseInt(match[1].slice(offset, offset + 2), 16) / 255);
+    const maximum = Math.max(red, green, blue);
+    const minimum = Math.min(red, green, blue);
+    const lightness = (maximum + minimum) / 2;
+    if (maximum - minimum < 0.12 || lightness < 0.18 || lightness > 0.88) return 'neutral';
+    const delta = maximum - minimum;
+    let hue = 0;
+    if (maximum === red) hue = ((green - blue) / delta) % 6;
+    else if (maximum === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue *= 60;
+    if (hue < 0) hue += 360;
+    return hue < 70 || hue >= 330 ? 'warm' : 'cool';
+  }
   return 'other';
 }
 

@@ -44,19 +44,54 @@ declare global {
 }
 
 const defaultPreferences: Preferences = { palette: 'balanced', includeHeadwear: true, avoid: '', note: '' };
-const categoryLabels = { all: 'All 44', tops: 'Tops', bottoms: 'Bottoms', shoes: 'Shoes', headwear: 'Headwear' } as const;
+const categoryLabels = { all: 'All', tops: 'Tops', bottoms: 'Bottoms', shoes: 'Shoes', headwear: 'Headwear' } as const;
 const occasionLabels: Record<Occasion, string> = { work: 'Work', casual: 'Casual day', dinner: 'Dinner', event: 'Special event' };
 const outfitOrder: Category[] = ['headwear', 'tops', 'bottoms', 'shoes'];
 const outfitSlotLabels: Record<Category, string> = { headwear: 'Headwear', tops: 'Top', bottoms: 'Bottom', shoes: 'Shoes' };
+const defaultOccasionRecolorColors: Record<Category, string> = { headwear: '#7A1F3D', tops: '#7A1F3D', bottoms: '#7A1F3D', shoes: '#7A1F3D' };
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function imagePath(item: WardrobeItem) {
-  return `/items/${item.file}`;
+  return item.imageSrc ?? `/items/${item.file}`;
 }
 
 function cleanImagePath(item: WardrobeItem) {
+  if (item.imageSrc) return item.imageSrc;
   const [category, file] = item.file.split('/');
   return `/items/clean/${category}/${file.replace(/\.png$/i, '.webp')}?v=2`;
+}
+
+function readSavedVariants(): WardrobeItem[] {
+  try {
+    const raw = localStorage.getItem('clotho:variants');
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((candidate): candidate is WardrobeItem => {
+      if (!candidate || typeof candidate !== 'object') return false;
+      const item = candidate as Record<string, unknown>;
+      return ['tops', 'bottoms', 'shoes', 'headwear'].includes(String(item.category))
+        && ['id', 'name', 'color', 'style', 'sourceGrid', 'file', 'variantOf', 'variantColor', 'imageSrc'].every((key) => typeof item[key] === 'string');
+    });
+  } catch {
+    return [];
+  }
+}
+
+function makeRecolorVariant(baseItem: WardrobeItem, color: string, imageSrc: string): WardrobeItem {
+  const normalizedColor = color.toUpperCase();
+  const baseId = baseItem.variantOf ?? baseItem.id;
+  return {
+    id: `${baseId}--${normalizedColor.slice(1).toLowerCase()}`,
+    category: baseItem.category,
+    name: `${baseItem.name} · ${normalizedColor}`,
+    color: normalizedColor,
+    style: `${baseItem.style} · recolored`,
+    sourceGrid: baseItem.sourceGrid,
+    file: baseItem.file,
+    variantOf: baseId,
+    variantColor: normalizedColor,
+    imageSrc,
+  };
 }
 
 function weatherKind(code: number) {
@@ -139,6 +174,9 @@ export default function Home() {
   const [recolorColor, setRecolorColor] = useState('#7A1F3D');
   const [recolorPreview, setRecolorPreview] = useState<RecolorPreview | null>(null);
   const [recolorBusy, setRecolorBusy] = useState(false);
+  const [occasionRecolorCategory, setOccasionRecolorCategory] = useState<Category>('tops');
+  const [occasionRecolorColors, setOccasionRecolorColors] = useState(defaultOccasionRecolorColors);
+  const [occasionRecolorBusy, setOccasionRecolorBusy] = useState<Category | null>(null);
   const [activePanel, setActivePanel] = useState<Panel>(null);
   const [zoomedLook, setZoomedLook] = useState<Outfit | null>(null);
   const [zoomedLabel, setZoomedLabel] = useState('Outfit overview');
@@ -183,8 +221,9 @@ export default function Home() {
         return response.json() as Promise<{ items: WardrobeItem[] }>;
       })
       .then((manifest) => {
-        setItems(manifest.items);
-        setStatus(`${manifest.items.length} wardrobe items ready.`);
+        const variants = readSavedVariants();
+        setItems([...manifest.items, ...variants]);
+        setStatus(`${manifest.items.length} wardrobe items and ${variants.length} saved variants ready.`);
       })
       .catch((error: Error) => setStatus(error.message));
   }, []);
@@ -221,10 +260,24 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem('clotho:preferences', JSON.stringify(preferences));
-    localStorage.setItem('clotho:plans', JSON.stringify(plans));
-    localStorage.setItem('clotho:history', JSON.stringify(history));
+    try {
+      localStorage.setItem('clotho:preferences', JSON.stringify(preferences));
+      localStorage.setItem('clotho:plans', JSON.stringify(plans));
+      localStorage.setItem('clotho:history', JSON.stringify(history));
+    } catch {
+      setStatus('Browser storage is full; recent changes remain available for this session.');
+    }
   }, [history, hydrated, plans, preferences]);
+
+  useEffect(() => {
+    if (!hydrated || !items.length) return;
+    try {
+      // ponytail: localStorage keeps variants dependency-free; use IndexedDB if image volume outgrows browser quota.
+      localStorage.setItem('clotho:variants', JSON.stringify(items.filter((item) => item.variantOf && item.variantColor && item.imageSrc)));
+    } catch {
+      setStatus('Variant preview is ready, but browser storage is full; remove saved data before saving another.');
+    }
+  }, [hydrated, items]);
 
   const makeLook = useCallback(
     (nextOccasion = occasion, nextPreferences = preferences, nextSeed = seed) => {
@@ -294,9 +347,34 @@ export default function Home() {
 
   function recordWear(nextLook = look, nextDate = date) {
     if (!nextLook) return;
-    const entry = { id: `wear-${Date.now()}`, date: nextDate, outfit: nextLook };
+    const committed = commitLookVariants(nextLook);
+    const entry = { id: `wear-${Date.now()}`, date: nextDate, outfit: committed.outfit };
     setHistory((current) => [entry, ...current]);
-    setStatus(`Recorded ${nextLook.title} as worn on ${nextDate}.`);
+    setLook(committed.outfit);
+    setStatus(committed.savedCount ? `Saved ${committed.savedCount} recolored ${committed.savedCount === 1 ? 'piece' : 'pieces'} and recorded ${nextLook.title} as worn on ${nextDate}.` : `Recorded ${nextLook.title} as worn on ${nextDate}.`);
+  }
+
+  const commitLookVariants = useCallback((nextLook: Outfit) => {
+    const additions: WardrobeItem[] = [];
+    const committedItems = nextLook.items.map((item) => {
+      if (!item.imageSrc || !item.variantOf || !item.variantColor) return item;
+      const color = item.variantColor.toUpperCase();
+      const existing = items.find((candidate) => candidate.variantOf === item.variantOf && candidate.variantColor?.toUpperCase() === color);
+      if (existing) return existing;
+      const variant = makeRecolorVariant(items.find((candidate) => candidate.id === item.variantOf) ?? item, color, item.imageSrc);
+      if (!additions.some((candidate) => candidate.id === variant.id)) additions.push(variant);
+      return variant;
+    });
+    if (additions.length) setItems((current) => [...current, ...additions.filter((addition) => !current.some((candidate) => candidate.id === addition.id))]);
+    return { outfit: { ...nextLook, items: committedItems }, savedCount: additions.length };
+  }, [items]);
+
+  function selectOccasionPiece(category: Category) {
+    const item = look?.items.find((candidate) => candidate.category === category);
+    if (!item) return;
+    setOccasionRecolorCategory(category);
+    if (item.variantColor) setOccasionRecolorColors((current) => ({ ...current, [category]: item.variantColor!.toUpperCase() }));
+    setStatus(`${outfitSlotLabels[category]} selected. Choose a color to preview.`);
   }
 
   function updatePreferences(nextPreferences: Preferences) {
@@ -312,9 +390,10 @@ export default function Home() {
     setCalendarMonth(plan.date.slice(0, 7));
     setDaypart(plan.slot);
     setOccasion(plan.occasion);
-    setLook(plan.outfit);
-    setActivePanel(null);
-    setStatus(`Editing ${daypartLabels[plan.slot].toLowerCase()} on ${plan.date}. Place the look again to save changes.`);
+    setCalendarItemIds(plan.outfit.items.reduce<Partial<Record<Category, string>>>((current, item) => ({ ...current, [item.category]: item.id }), {}));
+    setActivePanel('calendar');
+    window.requestAnimationFrame(() => document.getElementById('calendar-add')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    setStatus(`Editing ${daypartLabels[plan.slot].toLowerCase()} on ${plan.date} in Add a moment.`);
   }
 
   function removePlan(plan: PlanEntry) {
@@ -389,6 +468,55 @@ export default function Home() {
     }
   }
 
+  async function recolorOccasionPiece(category: Category) {
+    const item = look?.items.find((candidate) => candidate.category === category);
+    if (!item) {
+      setStatus(`There is no ${outfitSlotLabels[category].toLowerCase()} in this look.`);
+      return null;
+    }
+    const color = (occasionRecolorColors[category] ?? defaultOccasionRecolorColors[category]).toUpperCase();
+    setOccasionRecolorCategory(category);
+    setOccasionRecolorBusy(category);
+    try {
+      const baseItem = items.find((candidate) => candidate.id === (item.variantOf ?? item.id)) ?? item;
+      const src = await recolorImage(cleanImagePath(baseItem), color);
+      const previewItem = makeRecolorVariant(baseItem, color, src);
+      setLook((current) => current ? { ...current, items: current.items.map((candidate) => candidate.category === category ? previewItem : candidate) } : current);
+      setStatus(`${outfitSlotLabels[category]} recolored to ${color}. “I wore this” will save it to the wardrobe.`);
+      return previewItem;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : `The ${outfitSlotLabels[category].toLowerCase()} recolor failed.`);
+      return null;
+    } finally {
+      setOccasionRecolorBusy(null);
+    }
+  }
+
+  function saveRecolorVariant() {
+    if (!recolorPreview) {
+      setStatus('Preview a color before saving a wardrobe variant.');
+      return null;
+    }
+    const source = recolorPreview.item;
+    const baseId = source.variantOf ?? source.id;
+    const baseItem = items.find((item) => item.id === baseId) ?? source;
+    const color = recolorPreview.color.toUpperCase();
+    const existing = items.find((item) => item.variantOf === baseId && item.variantColor?.toUpperCase() === color);
+    if (existing) {
+      setRecolorItemId(existing.id);
+      setRecolorPreview({ item: existing, color, src: existing.imageSrc ?? recolorPreview.src });
+      setStatus(`${existing.name} is already saved in the wardrobe.`);
+      return existing;
+    }
+    const variant = makeRecolorVariant(baseItem, color, recolorPreview.src);
+    setItems((current) => [...current, variant]);
+    setRecolorItemId(variant.id);
+    setRecolorColor(color);
+    setRecolorPreview({ item: variant, color, src: recolorPreview.src });
+    setStatus(`${variant.name} saved as a wardrobe variant.`);
+    return variant;
+  }
+
   useEffect(() => {
     if (!items.length) return;
     const context = document.modelContext;
@@ -438,9 +566,9 @@ export default function Home() {
           query,
           category: category ?? null,
           count: results.length,
-          items: results.map(({ id, category: itemCategory, name, color, style, file }) => ({ id, category: itemCategory, name, color, style, file })),
+          items: results.map(({ id, category: itemCategory, name, color, style, file, variantOf, variantColor }) => ({ id, category: itemCategory, name, color, style, file, variantOf: variantOf ?? null, variantColor: variantColor ?? null })),
         };
-      }, { signal: lifecycle.signal })).catch(() => undefined);
+      }, }, { signal: lifecycle.signal })).catch(() => undefined);
     } catch {
       // WebMCP is optional; unsupported registration must not break CLOTHO.
     }
@@ -580,7 +708,7 @@ export default function Home() {
     register({
       name: 'record_wear',
       title: 'Record this outfit as worn',
-      description: 'Add the currently visible outfit to wear history for a date.',
+      description: 'Add the currently visible outfit to wear history for a date and accept any inline recolor previews into the wardrobe.',
       inputSchema: {
         type: 'object',
         properties: { date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } },
@@ -594,10 +722,12 @@ export default function Home() {
         const values = asRecord(input);
         const nextDate = validString(values.date, 'date');
         if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) throw new Error('date must use YYYY-MM-DD.');
-        const entry = { id: `wear-${Date.now()}`, date: nextDate, outfit: state.look };
+        const committed = commitLookVariants(state.look);
+        const entry = { id: `wear-${Date.now()}`, date: nextDate, outfit: committed.outfit };
         setHistory((current) => [entry, ...current]);
-        setStatus(`Recorded ${state.look.title} as worn on ${nextDate}.`);
-        return { historyId: entry.id, date: nextDate, outfitId: state.look.id };
+        setLook(committed.outfit);
+        setStatus(committed.savedCount ? `Saved ${committed.savedCount} recolored ${committed.savedCount === 1 ? 'piece' : 'pieces'} and recorded ${state.look.title} as worn on ${nextDate}.` : `Recorded ${state.look.title} as worn on ${nextDate}.`);
+        return { historyId: entry.id, date: nextDate, outfitId: committed.outfit.id, savedVariantIds: committed.outfit.items.filter((item) => item.variantOf && item.imageSrc).map((item) => item.id) };
       },
     });
 
@@ -794,7 +924,7 @@ export default function Home() {
     register({
       name: 'recolor_item',
       title: 'Recolor a wardrobe item',
-      description: 'Recolor one catalog item in a low-resolution browser canvas and display the result in the CLOTHO recolor lab.',
+      description: 'Recolor one catalog item in a low-resolution browser canvas and display a preview in the CLOTHO recolor lab; saving it as a wardrobe variant requires the explicit Save as wardrobe variant action.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -823,7 +953,7 @@ export default function Home() {
     });
 
     return () => lifecycle.abort();
-  }, [items.length, weatherDays]);
+  }, [commitLookVariants, items.length, weatherDays]);
 
   const shownItems = useMemo(() => (category === 'all' ? items : items.filter((item) => item.category === category)), [category, items]);
   const cells = useMemo(() => monthCells(calendarMonth), [calendarMonth]);
@@ -882,9 +1012,28 @@ export default function Home() {
             <p className="hidden max-w-52 text-right text-xs leading-5 text-black/48 md:block">Existing images stacked into one standing look. No composite generation.</p>
           </div>
 
-          <button aria-label="Current outfit ordered from headwear to shoes. Click to enlarge." className="outfit-composition" disabled={!look} onClick={() => { if (look) openLookPreview(look); }} type="button">
+          <button
+            aria-label="Current outfit ordered from headwear to shoes. Click a piece to select it for recoloring, or click the open space to enlarge."
+            className="outfit-composition"
+            disabled={!look}
+            onClick={(event) => {
+              const piece = (event.target as HTMLElement).closest<HTMLElement>('[data-piece-select]');
+              if (piece?.dataset.pieceSelect) {
+                event.preventDefault();
+                selectOccasionPiece(piece.dataset.pieceSelect as Category);
+                return;
+              }
+              if (look) openLookPreview(look);
+            }}
+            type="button"
+          >
             {slots.map(({ slot, item }) => (
-              <figure className={`outfit-piece outfit-piece--${slot}`} key={slot}>
+              <figure
+                aria-label={item ? `Select ${outfitSlotLabels[slot].toLowerCase()} to recolor` : `${outfitSlotLabels[slot]} is not in this look`}
+                className={`outfit-piece outfit-piece--${slot} ${item && occasionRecolorCategory === slot ? 'is-recolor-target' : ''}`}
+                data-piece-select={item ? slot : undefined}
+                key={slot}
+              >
                 <figcaption>{outfitSlotLabels[slot]}</figcaption>
                 {item ? <img src={displayPath(item, true)} alt={`${item.name}, ${item.color}`} /> : <span className="outfit-empty">none</span>}
               </figure>
@@ -905,6 +1054,23 @@ export default function Home() {
             <label className="field-line mt-12"><span>Date</span><input value={date} onChange={(event) => { setDate(event.target.value); setCalendarMonth(event.target.value.slice(0, 7)); }} type="date" /></label>
             <label className="field-line"><span>Occasion</span><select value={occasion} onChange={(event) => { const nextOccasion = event.target.value as Occasion; setOccasion(nextOccasion); makeLook(nextOccasion, preferences, seed + 1); }}>{Object.entries(occasionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="field-line"><span>Time</span><select value={daypart} onChange={(event) => setDaypart(event.target.value as Daypart)}>{daypartOrder.map((slot) => <option key={slot} value={slot}>{daypartLabels[slot]}</option>)}</select></label>
+            <div className="occasion-recolor">
+              <div className="occasion-recolor-heading"><p className="eyebrow">Recolor this look</p><span>Four pieces, one decision at a time</span></div>
+              <div className="occasion-recolor-rows">
+                {outfitOrder.map((slot) => {
+                  const item = look?.items.find((candidate) => candidate.category === slot);
+                  const color = occasionRecolorColors[slot] ?? defaultOccasionRecolorColors[slot];
+                  const busy = occasionRecolorBusy === slot;
+                  return <div className={`occasion-recolor-row ${occasionRecolorCategory === slot ? 'is-active' : ''}`} key={slot}>
+                    <button aria-label={item ? `Select ${outfitSlotLabels[slot].toLowerCase()} to recolor` : `${outfitSlotLabels[slot]} is not in this look`} className="occasion-piece-select" disabled={!item} onClick={() => selectOccasionPiece(slot)} type="button"><span className="occasion-piece-label">{outfitSlotLabels[slot]}</span><span className="occasion-piece-name">{item?.name ?? 'Not in this look'}</span></button>
+                    <label className="occasion-color-control"><span className="sr-only">Color for {outfitSlotLabels[slot].toLowerCase()}</span><input aria-label={`Color for ${outfitSlotLabels[slot].toLowerCase()}`} disabled={Boolean(occasionRecolorBusy) || !item} type="color" value={color} onChange={(event) => setOccasionRecolorColors((current) => ({ ...current, [slot]: event.target.value.toUpperCase() }))} /></label>
+                    <code>{color}</code>
+                    <button className="text-link" disabled={Boolean(occasionRecolorBusy) || !item} onClick={() => void recolorOccasionPiece(slot)} type="button">{busy ? 'Recoloring…' : 'Recolor →'}</button>
+                  </div>;
+                })}
+              </div>
+              <p className="occasion-recolor-note">Select a row or click a piece in the silhouette. Recolor stays a preview; “I wore this” accepts every inline recolor into the wardrobe.</p>
+            </div>
           </div>
           <div className="mt-12 border-t border-black/10 pt-5">
             <button className="text-link text-base" onClick={() => planLook()} type="button">Place look on calendar →</button>
@@ -912,21 +1078,22 @@ export default function Home() {
             <button className="ml-6 border-0 bg-transparent p-0 text-[11px] text-black/45 underline decoration-black/25 underline-offset-4" onClick={() => generateBatch()} type="button">Generate batch</button>
             <button className="ml-6 border-0 bg-transparent p-0 text-[11px] text-black/45 underline decoration-black/25 underline-offset-4" onClick={() => { setWeekStartDate(date); setActivePanel('week'); }} type="button">Plan a week</button>
             <p className="mt-3 text-[11px] leading-5 text-black/40">Up to three moments per day: morning, day, and evening. Browser-local, WebMCP-readable.</p>
+            <p className="mt-1 text-[11px] leading-5 text-black/40">“I wore this” records the look and saves any inline recolor previews to your wardrobe.</p>
           </div>
         </aside>
       </section>
 
       {activePanel === 'wardrobe' && <section id="wardrobe" className="panel-sheet">
         <div className="mx-auto max-w-[1372px]">
-          <div className="section-heading"><div><p className="eyebrow">Wardrobe / 01</p><h2>Everything already owned.</h2></div><p>44 clean synthetic pieces. CLOTHO combines these references instead of paying to generate each outfit.</p></div>
-          <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3 border-b border-black/10 pb-4">{Object.entries(categoryLabels).map(([value, label]) => <button className={`filter-link ${category === value ? 'is-active' : ''}`} key={value} onClick={() => setCategory(value as keyof typeof categoryLabels)} type="button">{label}</button>)}</div>
+          <div className="section-heading"><div><p className="eyebrow">Wardrobe</p><h2>Everything already owned.</h2></div><p>{items.length} wardrobe pieces, including {items.filter((item) => item.variantOf).length} saved color variants. CLOTHO combines these references instead of paying to generate each outfit.</p></div>
+          <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3 border-b border-black/10 pb-4">{Object.entries(categoryLabels).map(([value, label]) => <button className={`filter-link ${category === value ? 'is-active' : ''}`} key={value} onClick={() => setCategory(value as keyof typeof categoryLabels)} type="button">{value === 'all' ? `${label} ${items.length}` : label}</button>)}</div>
           <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-9 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{shownItems.map((item) => <figure key={item.id}><div className="aspect-square overflow-hidden bg-white"><img className="h-full w-full object-contain p-[7%]" src={displayPath(item)} alt={`${item.name}, ${item.color}`} loading="lazy" /></div><figcaption className="mt-3"><p className="font-serif text-base leading-tight">{item.name}</p><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-black/42">{item.id} · {item.color}</p></figcaption></figure>)}</div>
         </div>
       </section>}
 
       {activePanel === 'calendar' && <section id="calendar" className="panel-sheet">
         <div className="mx-auto max-w-[1372px]">
-          <div className="section-heading"><div><p className="eyebrow">Calendar / 02</p><h2>Decide once. Wear later.</h2></div><p>A real seven-column month view. Each date holds up to three moments: morning, day, and evening.</p></div>
+          <div className="section-heading"><div><p className="eyebrow">Calendar</p><h2>Decide once. Wear later.</h2></div><p>A real seven-column month view. Each date holds up to three moments: morning, day, and evening.</p></div>
           <div className="weather-strip"><span className="eyebrow">Weather / New York City</span><span>{weatherStatus}</span></div>
           <div className="calendar-toolbar mt-6"><button aria-label="Previous month" onClick={() => setCalendarMonth(shiftMonth(calendarMonth, -1))} type="button">←</button><p>{monthTitle(calendarMonth)}</p><button aria-label="Next month" onClick={() => setCalendarMonth(shiftMonth(calendarMonth, 1))} type="button">→</button></div>
           <div className="calendar-scroll">
@@ -951,7 +1118,7 @@ export default function Home() {
               </button>
               <div className="calendar-edit-actions"><button className="text-link" onClick={() => editPlan(plan)} type="button">Edit</button><button className="text-link text-[#972d3f]" onClick={() => removePlan(plan)} type="button">Remove</button></div>
             </article>)}</div> : <p className="calendar-empty">Select a moment in the planner, then place a look here.</p>}
-            <div className="calendar-add">
+            <div className="calendar-add" id="calendar-add">
               <div className="calendar-editor-heading"><div><p className="eyebrow">Add a moment / {date}</p><h3>Select each piece.</h3></div>{calendarDraft && <span>{calendarDraft.score}/100 fit</span>}</div>
               <label className="field-line calendar-add-occasion"><span>Moment</span><select value={daypart} onChange={(event) => setDaypart(event.target.value as Daypart)}>{daypartOrder.map((slot) => <option key={slot} value={slot}>{daypartLabels[slot]}</option>)}</select></label>
               <label className="field-line calendar-add-occasion"><span>Occasion</span><select value={occasion} onChange={(event) => { const nextOccasion = event.target.value as Occasion; setOccasion(nextOccasion); makeLook(nextOccasion, preferences, seed + 1); }}>{Object.entries(occasionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -973,7 +1140,7 @@ export default function Home() {
 
       {activePanel === 'journal' && <section id="journal" className="panel-sheet history-sheet">
         <div className="history-hero">
-          <div><p className="eyebrow">Memory + taste / 03</p><h2 className="editorial-title mt-4">Dress with a memory.</h2><p className="mt-5 max-w-xl text-sm leading-6 text-black/55">Wear history lowers repetition. Taste reshapes the same wardrobe score. Every change below updates the visible look and persists in this browser.</p></div>
+          <div><p className="eyebrow">Memory + taste</p><h2 className="editorial-title mt-4">Dress with a memory.</h2><p className="mt-5 max-w-xl text-sm leading-6 text-black/55">Wear history lowers repetition. Taste reshapes the same wardrobe score. Every change below updates the visible look and persists in this browser.</p></div>
           <div className="history-metrics"><div><strong>{history.length}</strong><span>logged wears</span></div><div><strong>{rememberedItemCount}</strong><span>pieces remembered</span></div><div><strong>{preferences.includeHeadwear ? 'On' : 'Off'}</strong><span>headwear</span></div></div>
         </div>
         <div className="history-layout">
@@ -986,8 +1153,8 @@ export default function Home() {
             {wornItems.length > 0 && <div className="worn-items"><p className="eyebrow">Most repeated pieces</p><div className="worn-item-list">{wornItems.map(({ item, count }) => <span key={item.id}>{item.name} <b>×{count}</b></span>)}</div></div>}
           </div>
           <div id="preferences" className="taste-column">
-            <div className="history-column-heading"><div><p className="eyebrow">Taste / 04</p><h3>Make the rules yours.</h3></div><span>Live ranking</span></div>
-            <p className="taste-intro">These are constraints, not a generator. CLOTHO still chooses only from your 44 references.</p>
+            <div className="history-column-heading"><div><p className="eyebrow">Taste</p><h3>Make the rules yours.</h3></div><span>Live ranking</span></div>
+            <p className="taste-intro">These are constraints, not a generator. CLOTHO still chooses only from your saved wardrobe references.</p>
             <div className="taste-field"><p className="eyebrow">Palette</p><fieldset className="taste-choices"><legend className="sr-only">Palette preference</legend>
               {([{ value: 'balanced', label: 'Balanced', note: 'quiet contrast' }, { value: 'neutral', label: 'Mostly neutral', note: 'soft harmony' }, { value: 'colorful', label: 'More color', note: 'higher contrast' }] as { value: Palette; label: string; note: string }[]).map((choice) => <button className={`taste-choice ${preferences.palette === choice.value ? 'is-active' : ''}`} key={choice.value} onClick={() => updatePreferences({ ...preferences, palette: choice.value })} type="button"><span>{choice.label}</span><small>{choice.note}</small></button>)}
             </fieldset></div>
@@ -1001,7 +1168,7 @@ export default function Home() {
 
       {activePanel === 'batch' && <section id="batch" className="panel-sheet">
         <div className="mx-auto max-w-[1372px]">
-          <div className="section-heading"><div><p className="eyebrow">Batch studio / 05</p><h2>One request. Several ways to dress.</h2></div><p>Each click advances a variation seed, so the same request can surface new combinations without generated images or per-look API cost.</p></div>
+          <div className="section-heading"><div><p className="eyebrow">Batch studio</p><h2>One request. Several ways to dress.</h2></div><p>Each click advances a variation seed, so the same request can surface new combinations without generated images or per-look API cost.</p></div>
           <div className="mt-8 grid gap-x-10 md:grid-cols-2">
             <label className="field-line"><span>Occasion</span><select value={occasion} onChange={(event) => setOccasion(event.target.value as Occasion)}>{Object.entries(occasionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="field-line"><span>Outputs</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}>{[3, 6, 9, 12].map((count) => <option key={count} value={count}>{count} looks</option>)}</select></label>
@@ -1016,7 +1183,7 @@ export default function Home() {
 
       {activePanel === 'week' && <section id="week-plan" className="panel-sheet">
         <div className="mx-auto max-w-[1372px]">
-          <div className="section-heading"><div><p className="eyebrow">Week planner / 06</p><h2>Plan around the week, not one morning.</h2></div><p>Weather, existing calendar occasions, taste, and recent wear become constraints. Review several options before anything is scheduled.</p></div>
+          <div className="section-heading"><div><p className="eyebrow">Week planner</p><h2>Plan around the week, not one morning.</h2></div><p>Weather, existing calendar occasions, taste, and recent wear become constraints. Review several options before anything is scheduled.</p></div>
           <div className="mt-8 grid gap-x-10 md:grid-cols-2 lg:grid-cols-4">
             <label className="field-line"><span>Starts</span><input value={weekStartDate} onChange={(event) => setWeekStartDate(event.target.value)} type="date" /></label>
             <label className="field-line"><span>Window</span><select value={weekDays} onChange={(event) => setWeekDays(Number(event.target.value))}><option value={5}>5 days</option><option value={7}>7 days</option></select></label>
@@ -1036,10 +1203,12 @@ export default function Home() {
       {activePanel === 'recolor' && <section id="recolor" className="panel-sheet bg-white">
         <div className="mx-auto grid max-w-[1372px] gap-12 lg:grid-cols-[.7fr_1.3fr] lg:items-center">
           <div>
-            <p className="eyebrow">Recolor lab / 07</p><h2 className="editorial-title mt-4">Useful now, not theoretical.</h2><p className="mt-5 max-w-md text-sm leading-6 text-black/55">CLOTHO isolates the garment before recoloring it in a 512px browser canvas, keeping the product shadow out of the color mask. The visible control and WebMCP tool run the same operation.</p>
+            <p className="eyebrow">Recolor lab</p><h2 className="editorial-title mt-4">Useful now, not theoretical.</h2><p className="mt-5 max-w-md text-sm leading-6 text-black/55">CLOTHO isolates the garment before recoloring it in a 512px browser canvas, keeping the product shadow out of the color mask. The visible control and WebMCP tool run the same operation.</p>
             <label className="field-line mt-8"><span>Item</span><select aria-label="Item to recolor" value={recolorItemId} onChange={(event) => setRecolorItemId(event.target.value)}>{items.map((item) => <option key={item.id} value={item.id}>{item.id} · {item.name}</option>)}</select></label>
             <label className="field-line"><span>Color</span><span className="flex items-center justify-end gap-3"><input aria-label="Recolor value" className="h-8 max-w-14 cursor-pointer" type="color" value={recolorColor} onChange={(event) => setRecolorColor(event.target.value.toUpperCase())} /><code className="text-xs text-black/55">{recolorColor}</code></span></label>
             <button className="text-link mt-7" disabled={recolorBusy || !items.length} onClick={() => void applyRecolor()} type="button">{recolorBusy ? 'Recoloring…' : 'Recolor selected item →'}</button>
+            <button className="text-link mt-5" disabled={recolorBusy || !recolorPreview} onClick={() => saveRecolorVariant()} type="button">Save as wardrobe variant →</button>
+            <p className="mt-3 max-w-md text-[11px] leading-5 text-black/42">Preview first. Save this color only when you want it available to future looks, calendar plans, batches, and wear history.</p>
           </div>
           <figure className="grid grid-cols-2 gap-px overflow-hidden border border-black/10 bg-black/10">
             <div className="relative bg-[#fcfbf8]"><img className="aspect-square w-full object-contain" src={selectedRecolorItem ? imagePath(selectedRecolorItem) : '/recolor/before.png'} alt="Original wardrobe item" /><span className="image-label">Original</span></div>

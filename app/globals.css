@@ -74,6 +74,8 @@ a { color: inherit; text-decoration: none; }
 .outfit-piece { position: absolute; left: 50%; display: grid; width: 100%; place-items: center; margin: 0; transform: translateX(-50%); }
 .outfit-piece figcaption { position: absolute; z-index: 2; left: 1rem; top: .65rem; font-size: .58rem; letter-spacing: .15em; text-transform: uppercase; color: rgb(0 0 0 / 36%); }
 .outfit-piece img { position: relative; z-index: 1; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
+.outfit-piece[data-piece-select] { cursor: pointer; }
+.outfit-piece[data-piece-select]:hover figcaption, .outfit-piece.is-recolor-target figcaption { color: #972d3f; }
 .outfit-piece--headwear { top: 0; height: 23%; }
 .outfit-piece--headwear img { width: 42%; transform: translateY(8%); }
 .outfit-piece--tops { top: 17%; height: 36%; }
@@ -83,6 +85,20 @@ a { color: inherit; text-decoration: none; }
 .outfit-piece--shoes { top: 80%; height: 20%; }
 .outfit-piece--shoes img { width: 61%; transform: translateY(-4%); }
 .outfit-empty { color: rgb(0 0 0 / 20%); font-family: Iowan Old Style, Baskerville, serif; font-style: italic; }
+.occasion-recolor { margin-top: 1.25rem; border-top: 1px solid rgb(0 0 0 / 11%); padding-top: 1rem; }
+.occasion-recolor-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.occasion-recolor-heading > span { color: rgb(0 0 0 / 43%); font-size: .62rem; letter-spacing: .08em; text-transform: uppercase; }
+.occasion-recolor-rows { margin-top: .75rem; border-top: 1px solid rgb(0 0 0 / 11%); }
+.occasion-recolor-row { display: grid; grid-template-columns: minmax(0, 1fr) 1.7rem auto auto; align-items: center; gap: .65rem; border-bottom: 1px solid rgb(0 0 0 / 10%); padding: .65rem 0; }
+.occasion-recolor-row.is-active { border-bottom-color: #972d3f; }
+.occasion-piece-select { display: grid; min-width: 0; gap: .2rem; border: 0; background: transparent; padding: 0; color: inherit; cursor: pointer; text-align: left; }
+.occasion-piece-select:hover .occasion-piece-label, .occasion-recolor-row.is-active .occasion-piece-label { color: #972d3f; }
+.occasion-piece-label { font-size: .6rem; letter-spacing: .14em; text-transform: uppercase; }
+.occasion-piece-name { overflow: hidden; color: rgb(0 0 0 / 46%); font-family: Iowan Old Style, Baskerville, Times New Roman, serif; font-size: .95rem; text-overflow: ellipsis; white-space: nowrap; }
+.occasion-color-control { display: flex; align-items: center; }
+.occasion-color-control input { width: 1.35rem; height: 1.35rem; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.occasion-recolor-row code { color: rgb(0 0 0 / 45%); font-size: .57rem; }
+.occasion-recolor-note { max-width: 25rem; margin-top: .7rem; color: rgb(0 0 0 / 42%); font-size: .66rem; line-height: 1.6; }
 .look-lightbox-backdrop { position: fixed; z-index: 40; inset: 0; border: 0; background: rgb(23 23 21 / 72%); cursor: zoom-out; }
 .look-lightbox { position: fixed; z-index: 41; inset: 4vh 4vw; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 1.25rem; overflow: auto; border: 0; margin: 0; background: #fcfbf8; padding: clamp(1rem, 3vw, 2.5rem); box-shadow: 0 28px 90px rgb(0 0 0 / 25%); animation: panel-in 240ms ease-out both; }
 .look-lightbox-header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; border-bottom: 1px solid rgb(0 0 0 / 11%); padding-bottom: 1rem; }

@@ -22,7 +22,7 @@ Open `http://localhost:3000`. WebMCP is available when the site is opened in Cha
 - Cached New York City weather from Open-Meteo.
 - Wear history, taste preferences, free-form taste notes, and local browser persistence.
 - Batch outfit generation and review-first weekly planning with conflict/trade-off explanations.
-- Browser-canvas recoloring that reuses the same item in the wardrobe and outfit view.
+- Browser-canvas recoloring in the Recolor lab and Occasion lens; inline previews are accepted into persistent wardrobe variants when a wear is recorded.
 - WebMCP tools for searching, suggesting, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, and recoloring.
 
 ## Checks
@@ -38,6 +38,6 @@ npm run build
 
 ## Data and assets
 
-The bundled catalog is a small synthetic test wardrobe: 44 items represented by 2×2 catalog grids and transparent WebP derivatives. No personal wardrobe data is included. Preferences, plans, and wear history stay in `localStorage`; the weather response is cached in the same browser.
+The bundled catalog is a small synthetic test wardrobe: 44 items represented by 2×2 catalog grids and transparent WebP derivatives. No personal wardrobe data is included. Preferences, plans, wear history, and saved recolor variants stay in `localStorage`; the weather response is cached in the same browser.
 
 The source code is licensed under Apache-2.0. CLOTHO branding and generated image provenance should be reviewed before reuse in another product.

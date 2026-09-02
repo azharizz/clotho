@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { buildOutfit, buildOutfitBatch } from '../lib/outfit-engine.ts';
+import { buildOutfit, buildOutfitBatch, buildCustomOutfit } from '../lib/outfit-engine.ts';
 
 const manifest = JSON.parse(await readFile(new URL('../public/items/manifest.json', import.meta.url)));
 const preferences = { palette: 'balanced', includeHeadwear: true, avoid: '' };
@@ -24,4 +24,9 @@ assert.equal(batch.length, 6);
 assert.equal(new Set(batch.map((outfit) => outfit.items.map((item) => item.id).sort().join(':'))).size, 6);
 assert.notDeepEqual(nextBatch.map((outfit) => outfit.id), batch.map((outfit) => outfit.id), 'different variation seeds should surface a different batch');
 assert.throws(() => buildOutfitBatch(manifest.items, 'work', preferences, [], 13, 'bad'), /1 to 12/);
+const variant = { ...manifest.items.find((item) => item.id === 'top-00'), id: 'top-00--7a1f3d', color: '#7A1F3D', variantOf: 'top-00', variantColor: '#7A1F3D', imageSrc: 'data:image/png;base64,test' };
+const variantCatalog = [...manifest.items, variant];
+const customVariant = buildCustomOutfit(variantCatalog, { tops: variant.id, bottoms: 'bottom-00', shoes: 'shoes-00', headwear: 'headwear-00' }, 'casual', preferences, [], 'variant-demo');
+assert.equal(customVariant.items.find((item) => item.category === 'tops')?.id, variant.id, 'saved recolor variants should be selectable in custom outfits');
+assert.equal(buildOutfitBatch(variantCatalog, 'casual', preferences, [], 3, 'variant-batch').length, 3, 'saved recolor variants should be available to batch generation');
 console.log(`engine ok: ${first.id}, ${first.score}/100, ${batch.length} unique batch looks`);
