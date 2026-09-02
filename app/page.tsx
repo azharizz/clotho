@@ -402,6 +402,7 @@ export default function Home() {
       }
     };
 
+    // Requirement example: keep the direct registerTool shape visible; the remaining CLOTHO tools use the shared wrapper below.
     try {
       void Promise.resolve(document.modelContext.registerTool({
       name: 'search_products',
