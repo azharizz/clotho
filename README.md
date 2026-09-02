@@ -1,6 +1,6 @@
 # CLOTHO
 
-**Closet Lens for Occasion, Taste, History & Outfits**
+**Classy Looks for Occasion, Taste, History & Outfits**
 
 CLOTHO is a local-first wardrobe planner that lets a person and an agent build, compare, and schedule outfits together. It composes existing catalog images in the browser; it does not generate a new outfit image at runtime.
 
