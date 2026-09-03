@@ -327,6 +327,7 @@ async function fetchImageForImport(imageUrl: string) {
 }
 
 export default function Home() {
+  const [openingVisible, setOpeningVisible] = useState(true);
   const [items, setItems] = useState<WardrobeItem[]>([]);
   const [look, setLook] = useState<Outfit | null>(null);
   const [occasion, setOccasion] = useState<Occasion>('work');
@@ -352,6 +353,7 @@ export default function Home() {
   const [weatherDays, setWeatherDays] = useState<Record<string, WeatherDay>>({});
   const [weatherStatus, setWeatherStatus] = useState('Reading forecast…');
   const [batchCount, setBatchCount] = useState(6);
+  const [batchBusy, setBatchBusy] = useState(false);
   const [batchLooks, setBatchLooks] = useState<Outfit[]>([]);
   const batchRevision = useRef(0);
   const [daypart, setDaypart] = useState<Daypart>('day');
@@ -370,6 +372,11 @@ export default function Home() {
   const handoffPreviewRef = useRef<string | null>(null);
   const live = useRef({ items, look, occasion, date, preferences, history, plans, seed, weatherDays, weekOptions, handoffResult });
   live.current = { items, look, occasion, date, preferences, history, plans, seed, weatherDays, weekOptions, handoffResult };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setOpeningVisible(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     try {
@@ -493,17 +500,26 @@ export default function Home() {
     makeLook(occasion, preferences, nextSeed);
   }
 
-  function generateBatch(nextOccasion = occasion, nextPreferences = preferences, count = batchCount, batchSeed?: string) {
+  async function generateBatch(nextOccasion = occasion, nextPreferences = preferences, count = batchCount, batchSeed?: string) {
     if (!items.length) return [];
+    if (batchBusy) return [];
     const resolvedSeed = batchSeed ?? `${date}:batch:${batchRevision.current++}`;
-    const results = buildOutfitBatch(items, nextOccasion, nextPreferences, recentIds(history), count, resolvedSeed);
-    setOccasion(nextOccasion);
-    setPreferences(nextPreferences);
-    setBatchCount(count);
-    setBatchLooks(results);
     setActivePanel('batch');
-    setStatus(`${results.length} distinct ${occasionLabels[nextOccasion].toLowerCase()} looks ready.`);
-    return results;
+    setBatchBusy(true);
+    setBatchLooks([]);
+    setStatus('Composing fitting looks…');
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    try {
+      const results = buildOutfitBatch(items, nextOccasion, nextPreferences, recentIds(history), count, resolvedSeed);
+      setOccasion(nextOccasion);
+      setPreferences(nextPreferences);
+      setBatchCount(count);
+      setBatchLooks(results);
+      setStatus(`${results.length} distinct ${occasionLabels[nextOccasion].toLowerCase()} looks ready.`);
+      return results;
+    } finally {
+      setBatchBusy(false);
+    }
   }
 
   function openLookPreview(nextLook: Outfit, label = 'Outfit overview') {
@@ -1412,6 +1428,26 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#fcfbf8] text-[#171715]">
+      {openingVisible && <div aria-label="Loading CLOTHO" aria-live="polite" className="opening-layer">
+        <div className="opening-stage">
+          <div className="opening-lockup">
+            <svg aria-hidden="true" className="opening-drawing" height="195" viewBox="0 0 1283 195" width="1283">
+              <g transform="translate(0 195) scale(.1 -.1)">
+                <path className="opening-mark-path" d="M630 1681c-96-30-177-80-239-147-72-77-117-165-138-271-15-75-15-89 0-170 43-232 205-401 440-459l66-17-16-30c-51-99-69-237-38-296 41-80 174-51 178 39 2 29-2 36-20 38-13 2-23-1-23-7s5-11 10-11c16 0 11-26-11-54-26-34-72-35-93-3-35 54-29 148 19 265l23 57 69 6c181 18 311 136 248 226-50 72-198 4-290-133-22-33-42-62-45-66-3-4-33-1-68 7-168 39-323 174-382 332-52 138-47 280 14 408 63 133 168 222 311 264 66 20 93 23 174 19 105-6 174-27 255-78 43-27 66-31 66-12 0 15-107 71-174 91-89 27-255 28-336 2z" pathLength="1" />
+                <path className="opening-mark-path opening-mark-path--tail" d="M1068 838c7-7 12-27 12-45 0-70-103-140-224-151l-60-5 20 32c83 130 207 214 252 169z" pathLength="1" />
+                <path className="opening-letter-path opening-letter-path--c" d="M2402 1440c-111-29-206-84-287-165-134-135-182-259-172-449 6-124 31-198 95-292 79-115 213-206 353-239 85-20 255-19 338 1 80 20 181 72 238 122 37 34 42 43 48 100 4 34 3 62-2 62-4 0-24-25-43-56-47-76-131-151-210-188-62-30-71-31-190-31-124 0-126 0-204 38-135 64-225 177-277 347-18 60-23 98-23 190 0 193 44 311 158 426 56 55 86 77 141 99 63 26 81 29 185 30 109 0 118-2 183-32 79-38 174-123 208-188 13-25 27-45 31-45 5 0 8 47 8 105 0 103-4 117-28 93-8-8-30-3-89 25-147 66-319 84-461 47z" pathLength="1" />
+                <path className="opening-letter-path opening-letter-path--l" d="M3843 1433c-35-2-63-8-63-13 0-6 11-10 25-10 14 0 34-9 45-20 19-19 20-33 20-512 0-271-3-503-6-515-3-12-18-26-32-31-15-6-36-14-47-19-11-4 151-9 379-11 220-1 400-1 402 1 2 2 34 189 34 202 0 20-20-4-43-50-32-66-87-109-158-124-27-6-128-11-224-11-164 0-175 1-185 20-7 14-10 180-8 526l3 506 24 19c13 10 34 19 48 19 15 0 23 5 21 13-5 12-108 17-235 10z" pathLength="1" />
+                <path className="opening-letter-path opening-letter-path--o1" d="M5715 1445c-211-54-387-226-440-430-19-76-19-224 0-300 54-210 214-365 434-421 85-21 229-21 311 1 252 66 424 279 438 542 3 53 0 119-7 155-16 80-78 209-130 269-56 64-162 135-251 166-95 33-262 41-355 18zm318-43c89-41 189-141 235-233 121-242 86-569-79-744-124-131-335-168-506-90-131 59-262 243-292 409-6 33-11 101-11 151 0 268 142 481 357 535 21 5 81 8 133 7 83-2 103-7 163-35z" pathLength="1" />
+                <path className="opening-letter-path opening-letter-path--t" d="M7125 1430c-1-3-6-34-9-70-4-36-9-77-12-92-9-44 13-33 37 17 46 97 111 125 294 125h105v-520l0-521-25-24c-13-14-36-25-50-25-14 0-25-4-25-10 0-6 59-10 157-10 154 0 173 4 110 25-57 18-57 14-57 573v514l138-4c117-3 143-7 178-25 43-23 77-67 89-115 10-41 35-37 29 5-3 17-8 60-12 95l-7 62-468 3c-258 1-470 0-472-3z" pathLength="1" />
+                <path className="opening-letter-path opening-letter-path--h" d="M8843 1432 c-40 -2 -73 -7 -73 -12 0 -6 13 -10 29 -10 62 0 61 8 61 -547 0 -490 -1 -504 -20 -523 -11 -11 -31 -20 -45 -20 -14 0 -25 -4 -25 -10 0 -6 57 -10 150 -10 93 0 150 4 150 10 0 6 -11 10 -25 10 -14 0 -34 9 -45 20 -19 19 -20 33 -20 275 l0 255 360 0 360 0 0 -250 0 -251 -25 -24 c-13 -14 -36 -25 -50 -25 -14 0 -25 -4 -25 -10 0 -6 59 -10 156 -10 101 0 153 3 149 10 -3 6 -14 10 -24 10 -11 0 -29 9 -42 19 l-24 19 0 505 c0 548 -2 529 56 545 62 16 18 25 -120 24 -166 -1 -187 -7 -98 -26 17 -4 31 -16 37 -32 6 -14 10 -126 10 -250 l0 -224 -360 0 -360 0 0 233 c0 251 2 261 52 275 15 4 27 11 25 16 -2 10 -90 13 -214 8z" pathLength="1" />
+                <path className="opening-letter-path opening-letter-path--o2" d="M11134 1446c-199-46-381-213-444-407-31-94-34-242-6-334 61-207 226-363 434-411 89-21 230-21 312 1 205 53 373 223 425 430 34 133 11 310-57 438-62 115-199 227-327 268-85 27-252 34-337 15zm319-49c133-66 240-209 281-378 20-83 21-253 1-338-19-77-64-170-112-229-101-123-270-182-430-148-91 19-143 46-211 110-119 111-180 252-189 437-10 186 38 335 144 450 94 101 195 140 349 136 83-3 99-6 167-40z" pathLength="1" />
+                <path className="opening-dot-path" d="M12465 906c-19-29-11-72 15-86 48-26 100 2 100 52 0 56-84 81-115 34z" />
+              </g>
+            </svg>
+          </div>
+          <span aria-hidden="true" className="opening-rule" />
+        </div>
+      </div>}
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-black/10 bg-[#fcfbf8]/95 px-5 py-4 backdrop-blur-md md:px-10 lg:px-16">
         <a className="flex shrink-0 items-baseline gap-3" href="#top">
           <img
@@ -1627,8 +1663,12 @@ export default function Home() {
             <label className="field-line"><span>Occasion</span><select value={occasion} onChange={(event) => setOccasion(event.target.value as Occasion)}>{Object.entries(occasionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="field-line"><span>Outputs</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}>{[3, 6, 9, 12, 18, 24, 30].map((count) => <option key={count} value={count}>{count} looks</option>)}</select></label>
           </div>
-          <button className="text-link mt-7" onClick={() => generateBatch()} type="button">Generate fitting batch →</button>
-          {batchLooks.length ? <div className="batch-grid mt-10">{batchLooks.map((outfit, index) => <article className="batch-card" key={outfit.id}>
+          <button className="text-link mt-7" disabled={batchBusy || !items.length} onClick={() => void generateBatch()} type="button">{batchBusy ? 'Composing fitting looks…' : 'Generate fitting batch →'}</button>
+          {batchBusy ? <output aria-label="Curating fitting looks" aria-live="polite" className="batch-loading mt-10">
+            <img alt="" aria-hidden="true" className="batch-loading-mark" src="/branding/clotho-mark.png" />
+            <div aria-hidden="true" className="batch-loading-rule"><span /></div>
+            <p className="batch-loading-label">Curating fitting looks</p>
+          </output> : batchLooks.length ? <div className="batch-grid mt-10">{batchLooks.map((outfit, index) => <article className="batch-card" key={outfit.id}>
             <div className="batch-look" aria-label={`${outfit.title}, batch result ${index + 1}`}>{outfitOrder.map((slot) => { const item = outfit.items.find((candidate) => candidate.category === slot); return item ? <img className={`batch-piece batch-piece--${slot}`} key={slot} src={displayPath(item, true)} alt={`${item.name}, ${item.color}`} /> : null; })}</div>
             <div className="flex items-end justify-between gap-4 border-t border-black/10 pt-4"><div><p className="eyebrow">Look {String(index + 1).padStart(2, '0')}</p><p className="mt-1 font-serif text-lg">{outfit.score}/100</p></div><button className="text-link" onClick={() => selectBatchLook(outfit)} type="button">Use look</button></div>
           </article>)}</div> : <p className="mt-12 border-t border-black/10 py-8 font-serif text-xl text-black/38">Choose a request and generate the first batch.</p>}
