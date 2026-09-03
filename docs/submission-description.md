@@ -3,9 +3,11 @@
 </p>
 
 <div align="center">
-  <strong>One wardrobe. A changing week. One decision system.</strong><br>
+  <strong>CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits</strong><br>
+  One wardrobe. A changing week. One decision system.<br>
   <a href="https://clotho.azharizzannada.chatgpt.site/">Open the live product</a> ·
   <a href="https://github.com/azharizz/clotho/blob/main/README.md">Read the repository</a> ·
+  <a href="https://github.com/azharizz/clotho/blob/main/docs/assets/clotho-readme-banner.svg">Banner SVG source</a> ·
   <a href="https://webmcp.devpost.com/">WebMCP hackathon</a>
 </div>
 

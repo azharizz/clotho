@@ -19,6 +19,7 @@
   <p>
     <a href="https://clotho.azharizzannada.chatgpt.site/">Live app</a> ·
     <a href="docs/submission-description.md">Hackathon description</a> ·
+    <a href="docs/assets/clotho-readme-banner.svg">Banner SVG source</a> ·
     <a href="public/assets/diagrams/clotho-webmcp-human-loop.gif">How it works</a> ·
     <a href="public/assets/diagrams/clotho-production-architecture.gif">Infrastructure</a>
   </p>
