@@ -23,7 +23,19 @@ Open `http://localhost:3000`. WebMCP is available when the site is opened in Cha
 - Wear history, taste preferences, free-form taste notes, and local browser persistence.
 - Batch outfit generation and review-first weekly planning with conflict/trade-off explanations.
 - Browser-canvas recoloring in the Recolor lab and Occasion lens; inline previews are accepted into persistent wardrobe variants when a wear is recorded.
-- WebMCP tools for searching, suggesting, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, and recoloring.
+- WebMCP tools for searching, suggesting, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, recoloring, importing a client-provided HTTPS image URL, and saving a reviewed wardrobe grid.
+
+## Temporary URL import
+
+The image-import panel starts with a generic image URL field for the client bridge. The agent first turns an outfit photo into a clean 2×2 catalog grid, uploads that grid to temporary hosting, then passes its HTTPS URL to `import_image_url`. CLOTHO's same-origin bridge resolves the temporary upload page and reads the image so browser canvas cropping remains possible. CLOTHO does not upload the client's image itself.
+
+```text
+agent creates 2×2 catalog grid + one metadata record per crop → temporary HTTPS URL
+→ import_image_url({ imageUrl, includeHeadwear, items, autoAccept })
+→ fetch/crop the grid → preview or immediate local save
+```
+
+This path is for synthetic or non-sensitive feasibility images only. Temporary hosting is public third-party storage; the link expires, and only confirmed crop previews are persisted locally.
 
 ## Checks
 

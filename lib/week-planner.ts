@@ -1,4 +1,4 @@
-import { buildOutfit, type Occasion, type Outfit, type Preferences, type WardrobeItem } from './outfit-engine.ts';
+import { buildOutfit, type Occasion, type Outfit, type OutfitConstraints, type Preferences, type WardrobeItem } from './outfit-engine.ts';
 import type { WeatherDay } from './weather.ts';
 
 export type Daypart = 'morning' | 'day' | 'evening';
@@ -99,6 +99,7 @@ export function buildWeekPlanOptions(
   weatherDays: Record<string, WeatherDay>,
   optionCount: number,
   seed: string,
+  constraints: OutfitConstraints = {},
 ): WeekPlanOption[] {
   validDate(startDate);
   if (!Number.isInteger(days) || days < 1 || days > 7) throw new Error('days must be an integer from 1 to 7.');
@@ -124,7 +125,7 @@ export function buildWeekPlanOptions(
       for (const slot of orderedDayparts) {
         const calendarOccasion = dateOccasions.find((entry) => entry.slot === slot) ?? dateOccasions[0];
         const nextOccasion = calendarOccasion?.occasion ?? defaultOccasion;
-        const outfit = buildOutfit(items, nextOccasion, preferences, usedItemIds, `${seed}:option-${optionIndex}:${date}:${slot}`);
+        const outfit = buildOutfit(items, nextOccasion, preferences, usedItemIds, `${seed}:option-${optionIndex}:${date}:${slot}`, constraints);
         const weather = weatherDays[date];
         const fit = weatherFit(weather, outfit, slot);
         const repeated = outfit.items.filter((item) => (weekItemUse.get(item.id) ?? 0) > 0);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { analyzeColor, buildOutfit, buildOutfitBatch, buildCustomOutfit, occasionFit } from '../lib/outfit-engine.ts';
+import { analyzeColor, buildOutfit, buildOutfitBatch, buildCustomOutfit, colorOccasionAdjustment, describeColor, occasionFit } from '../lib/outfit-engine.ts';
 
 const manifest = JSON.parse(await readFile(new URL('../public/items/manifest.json', import.meta.url)));
 const preferences = { palette: 'balanced', includeHeadwear: true, avoid: '' };
@@ -9,6 +9,7 @@ const repeated = buildOutfit(manifest.items, 'work', preferences, [], '2026-09-0
 const noHat = buildOutfit(manifest.items, 'casual', { ...preferences, includeHeadwear: false }, [], '2026-09-03');
 const historyAware = buildOutfit(manifest.items, 'work', preferences, first.items.map((item) => item.id), '2026-09-02');
 const noteAware = buildOutfit(manifest.items, 'casual', { ...preferences, note: 'utility overshirt' }, [], '2026-09-02');
+const constrained = buildOutfit(manifest.items, 'casual', preferences, [], 'constraint-demo', { requiredItemIds: ['bottom-01'], excludedItemIds: ['shoes-00'] });
 
 assert.equal(first.items.length, 4);
 assert.deepEqual(first, repeated, 'same inputs must produce the same outfit');
@@ -16,10 +17,17 @@ assert.notDeepEqual(historyAware.items.map((item) => item.id), first.items.map((
 assert.equal(noteAware.items.find((item) => item.category === 'tops')?.id, 'top-05', 'taste notes should influence matching item terms');
 assert.equal(noHat.items.length, 3);
 assert.deepEqual(noHat.items.map((item) => item.category), ['tops', 'bottoms', 'shoes']);
+assert.equal(constrained.items.find((item) => item.category === 'bottoms')?.id, 'bottom-01', 'required item IDs should be included');
+assert.notEqual(constrained.items.find((item) => item.category === 'shoes')?.id, 'shoes-00', 'excluded item IDs should never be included');
+assert.throws(() => buildOutfit(manifest.items, 'casual', preferences, [], 'bad-excluded', { excludedItemIds: ['missing-item'] }), /Unknown excluded wardrobe item/);
 assert.ok(first.score >= 58 && first.score <= 97);
 assert.equal(analyzeColor('white and forest green').family, 'mixed', 'multi-color metadata should remain mixed');
 assert.equal(analyzeColor('#7A1F3D').family, 'warm', 'recolor hex should use deterministic hue classification');
 assert.equal(analyzeColor('#F4EDCF').family, 'neutral', 'light recolor hex should classify as neutral');
+assert.equal(describeColor('#E07A35').label, 'orange', 'recolor hex should retain a semantic color label');
+assert.ok(describeColor('#E07A35').aliases.includes('orange'), 'semantic color aliases should include the label');
+assert.equal(colorOccasionAdjustment(analyzeColor('#E07A35'), 'casual'), 1, 'bright color should get a small casual occasion lift');
+assert.equal(colorOccasionAdjustment(analyzeColor('#E07A35'), 'event'), -1, 'bright color should get a small formal occasion penalty');
 const tailoredTrousers = manifest.items.find((item) => item.id === 'bottom-00');
 const oversizedHoodie = manifest.items.find((item) => item.id === 'top-04');
 assert.ok(occasionFit(tailoredTrousers, 'work') > occasionFit(tailoredTrousers, 'casual'), 'tailored trousers should favor work');
@@ -30,10 +38,18 @@ const nextBatch = buildOutfitBatch(manifest.items, 'dinner', preferences, [], 6,
 assert.equal(batch.length, 6);
 assert.equal(new Set(batch.map((outfit) => outfit.items.map((item) => item.id).sort().join(':'))).size, 6);
 assert.notDeepEqual(nextBatch.map((outfit) => outfit.id), batch.map((outfit) => outfit.id), 'different variation seeds should surface a different batch');
+const constrainedBatch = buildOutfitBatch(manifest.items, 'casual', preferences, [], 3, 'constraint-batch', { requiredItemIds: ['bottom-01'], excludedItemIds: ['shoes-00'] });
+assert.equal(constrainedBatch.every((outfit) => outfit.items.some((item) => item.id === 'bottom-01')), true, 'required items should appear in every batch result');
+assert.equal(constrainedBatch.every((outfit) => !outfit.items.some((item) => item.id === 'shoes-00')), true, 'excluded items should stay out of every batch result');
 assert.throws(() => buildOutfitBatch(manifest.items, 'work', preferences, [], 13, 'bad'), /1 to 12/);
-const variant = { ...manifest.items.find((item) => item.id === 'top-00'), id: 'top-00--7a1f3d', color: '#7A1F3D', variantOf: 'top-00', variantColor: '#7A1F3D', imageSrc: 'data:image/png;base64,test' };
+assert.throws(() => buildOutfit(manifest.items, 'work', preferences, [], 'bad-required', { requiredItemIds: ['top-00', 'top-01'] }), /one required item per category/);
+const variant = { ...manifest.items.find((item) => item.id === 'top-00'), id: 'top-00--7a1f3d', color: '#7A1F3D', variantOf: 'top-00', variantColor: '#7A1F3D', imageSrc: '/test/variant.png' };
 const variantCatalog = [...manifest.items, variant];
 const customVariant = buildCustomOutfit(variantCatalog, { tops: variant.id, bottoms: 'bottom-00', shoes: 'shoes-00', headwear: 'headwear-00' }, 'casual', preferences, [], 'variant-demo');
 assert.equal(customVariant.items.find((item) => item.category === 'tops')?.id, variant.id, 'saved recolor variants should be selectable in custom outfits');
 assert.equal(buildOutfitBatch(variantCatalog, 'casual', preferences, [], 3, 'variant-batch').length, 3, 'saved recolor variants should be available to batch generation');
+const orangeVariant = { ...manifest.items.find((item) => item.id === 'top-00'), id: 'top-00--e07a35', color: '#E07A35', variantOf: 'top-00', variantColor: '#E07A35', imageSrc: '/test/orange-variant.png' };
+const avoidCatalog = [...manifest.items.filter((item) => item.category !== 'tops' || item.id === 'top-00'), orangeVariant];
+const avoidOrange = buildOutfit(avoidCatalog, 'casual', { ...preferences, avoid: 'orange' }, [], 'avoid-orange');
+assert.notEqual(avoidOrange.items.find((item) => item.category === 'tops')?.id, orangeVariant.id, 'semantic avoid terms should exclude recolored hex variants');
 console.log(`engine ok: ${first.id}, ${first.score}/100, ${batch.length} unique batch looks`);

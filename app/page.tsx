@@ -7,8 +7,10 @@ import {
   buildOutfit,
   buildOutfitBatch,
   buildCustomOutfit,
+  describeColor,
   type Category,
   type Occasion,
+  type OccasionProfile,
   type Outfit,
   type Palette,
   type Preferences,
@@ -21,7 +23,11 @@ import { buildWeekPlanOptions, daypartLabels, daypartOrder, type CalendarOccasio
 type PlanEntry = { id: string; date: string; slot: Daypart; occasion: Occasion; outfit: Outfit };
 type WearEntry = { id: string; date: string; outfit: Outfit };
 type RecolorPreview = { item: WardrobeItem; color: string; src: string };
-type Panel = 'wardrobe' | 'calendar' | 'journal' | 'recolor' | 'batch' | 'week' | null;
+type ImportMetadata = { category: Category; name: string; color: string; style: string; occasionProfile: OccasionProfile };
+type HandoffCrop = { category: Category; label: string; src: string; width: number; height: number; metadata?: ImportMetadata };
+type HandoffTransport = 'tmpfiles-url';
+type HandoffProbe = { id: string; source: string; contentType: string; bytes: number; width: number; height: number; previewUrl: string; transport: HandoffTransport; includeHeadwear: boolean; remoteUrl?: string; crops?: HandoffCrop[]; committed?: boolean };
+type Panel = 'wardrobe' | 'calendar' | 'journal' | 'recolor' | 'batch' | 'week' | 'image-import' | null;
 
 type ModelContextApi = {
   registerTool: (
@@ -48,8 +54,21 @@ const categoryLabels = { all: 'All', tops: 'Tops', bottoms: 'Bottoms', shoes: 'S
 const occasionLabels: Record<Occasion, string> = { work: 'Work', casual: 'Casual day', dinner: 'Dinner', event: 'Special event' };
 const outfitOrder: Category[] = ['headwear', 'tops', 'bottoms', 'shoes'];
 const outfitSlotLabels: Record<Category, string> = { headwear: 'Headwear', tops: 'Top', bottoms: 'Bottom', shoes: 'Shoes' };
+const paletteStops: Array<{ value: Palette; label: string; note: string }> = [
+  { value: 'neutral', label: 'Mostly neutral', note: 'soft harmony' },
+  { value: 'balanced', label: 'Balanced', note: 'quiet contrast' },
+  { value: 'colorful', label: 'More color', note: 'higher contrast' },
+];
 const defaultOccasionRecolorColors: Record<Category, string> = { headwear: '#7A1F3D', tops: '#7A1F3D', bottoms: '#7A1F3D', shoes: '#7A1F3D' };
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const HANDOFF_MAX_BYTES = 8 * 1024 * 1024;
+const TMPFILES_HOSTS = new Set(['tmpfiles.org', 'www.tmpfiles.org']);
+const handoffGrid = [
+  { category: 'headwear' as const, label: 'Headwear', column: 1, row: 1 },
+  { category: 'tops' as const, label: 'Top', column: 0, row: 0 },
+  { category: 'bottoms' as const, label: 'Bottom', column: 1, row: 0 },
+  { category: 'shoes' as const, label: 'Shoes', column: 0, row: 1 },
+];
 
 function imagePath(item: WardrobeItem) {
   return item.imageSrc ?? `/items/${item.file}`;
@@ -59,6 +78,52 @@ function cleanImagePath(item: WardrobeItem) {
   if (item.imageSrc) return item.imageSrc;
   const [category, file] = item.file.split('/');
   return `/items/clean/${category}/${file.replace(/\.png$/i, '.webp')}?v=2`;
+}
+
+async function inspectHandoffBlob(blob: Blob, source: string, declaredType = '') {
+  if (blob.size > HANDOFF_MAX_BYTES) throw new Error('The image is larger than CLOTHO’s 8 MB feasibility limit.');
+  const contentType = (blob.type || declaredType).split(';')[0].toLowerCase();
+  if (!contentType.startsWith('image/')) throw new Error('The response was not a browser-decodable image.');
+  const previewUrl = URL.createObjectURL(blob);
+  try {
+    const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const image = new window.Image();
+      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      image.onerror = () => reject(new Error('The response could not be decoded as an image.'));
+      image.src = previewUrl;
+    });
+    return { source, contentType, bytes: blob.size, previewUrl, ...dimensions };
+  } catch (error) {
+    URL.revokeObjectURL(previewUrl);
+    throw error;
+  }
+}
+
+async function cropHandoffGrid(previewUrl: string, width: number, height: number, includeHeadwear = true): Promise<HandoffCrop[]> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const nextImage = new window.Image();
+    nextImage.onload = () => resolve(nextImage);
+    nextImage.onerror = () => reject(new Error('The received image could not be cropped into a 2×2 grid.'));
+    nextImage.src = previewUrl;
+  });
+  const cropWidth = Math.max(1, Math.floor(width / 2));
+  const cropHeight = Math.max(1, Math.floor(height / 2));
+  const canvas = document.createElement('canvas');
+  canvas.width = cropWidth;
+  canvas.height = cropHeight;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('This browser cannot create a crop preview canvas.');
+  return handoffGrid.filter(({ category }) => includeHeadwear || category !== 'headwear').map(({ category, label, column, row }) => {
+    context.clearRect(0, 0, cropWidth, cropHeight);
+    context.drawImage(image, column * cropWidth, row * cropHeight, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    let src: string;
+    try {
+      src = canvas.toDataURL('image/webp', 0.86);
+    } catch {
+      src = canvas.toDataURL('image/png');
+    }
+    return { category, label, src, width: cropWidth, height: cropHeight };
+  });
 }
 
 function readSavedVariants(): WardrobeItem[] {
@@ -77,6 +142,23 @@ function readSavedVariants(): WardrobeItem[] {
   }
 }
 
+function readSavedImports(): WardrobeItem[] {
+  try {
+    const raw = localStorage.getItem('clotho:imports');
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((candidate): candidate is WardrobeItem => {
+      if (!candidate || typeof candidate !== 'object') return false;
+      const item = candidate as Record<string, unknown>;
+      return String(item.id).startsWith('local-import-')
+        && ['tops', 'bottoms', 'shoes', 'headwear'].includes(String(item.category))
+        && ['id', 'name', 'color', 'style', 'sourceGrid', 'file', 'imageSrc'].every((key) => typeof item[key] === 'string');
+    });
+  } catch {
+    return [];
+  }
+}
+
 function makeRecolorVariant(baseItem: WardrobeItem, color: string, imageSrc: string): WardrobeItem {
   const normalizedColor = color.toUpperCase();
   const baseId = baseItem.variantOf ?? baseItem.id;
@@ -89,6 +171,7 @@ function makeRecolorVariant(baseItem: WardrobeItem, color: string, imageSrc: str
     sourceGrid: baseItem.sourceGrid,
     file: baseItem.file,
     occasionProfile: baseItem.occasionProfile,
+    colorMetadata: describeColor(normalizedColor),
     variantOf: baseId,
     variantColor: normalizedColor,
     imageSrc,
@@ -153,9 +236,94 @@ function validString(value: unknown, field: string, fallback = '') {
   return value;
 }
 
+function validBoolean(value: unknown, field: string, fallback: boolean) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'boolean') throw new Error(`${field} must be a boolean.`);
+  return value;
+}
+
+function validIsoDate(value: unknown, field = 'date') {
+  const date = validString(value, field).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${field} must use YYYY-MM-DD.`);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) throw new Error(`${field} must be a real calendar date.`);
+  return date;
+}
+
+function validItemIdList(value: unknown, field: string) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((itemId) => typeof itemId !== 'string' || !itemId.trim())) throw new Error(`${field} must be an array of non-empty item IDs.`);
+  return [...new Set(value.map((itemId) => itemId.trim()))];
+}
+
+function validImportMetadata(value: unknown, includeHeadwear: boolean): Map<Category, ImportMetadata> {
+  const expected = [...(includeHeadwear ? outfitOrder : outfitOrder.filter((category) => category !== 'headwear'))].sort();
+  if (!Array.isArray(value) || value.length !== expected.length) throw new Error(`items must contain metadata for exactly ${expected.join(', ')}.`);
+  const entries = value.map((candidate, index) => {
+    const item = asRecord(candidate);
+    const category = validString(item.category, `items[${index}].category`) as Category;
+    if (!expected.includes(category)) throw new Error(`items[${index}].category is not expected for this grid.`);
+    const name = validString(item.name, `items[${index}].name`).trim();
+    const color = validString(item.color, `items[${index}].color`).trim();
+    const style = validString(item.style, `items[${index}].style`).trim();
+    if (!name || !color || !style) throw new Error(`items[${index}] must include a non-empty name, color, and style.`);
+    const profile = asRecord(item.occasionProfile);
+    const formality = Number(profile.formality);
+    const activity = Number(profile.activity);
+    if (!Number.isInteger(formality) || formality < 1 || formality > 5 || !Number.isInteger(activity) || activity < 1 || activity > 5) throw new Error(`items[${index}].occasionProfile formality and activity must be integers from 1 to 5.`);
+    const occasions = profile.occasions === undefined ? undefined : profile.occasions;
+    if (occasions !== undefined && (!Array.isArray(occasions) || occasions.some((occasion) => !['work', 'casual', 'dinner', 'event'].includes(String(occasion))))) throw new Error(`items[${index}].occasionProfile.occasions must use work, casual, dinner, or event.`);
+    return { category, name, color, style, occasionProfile: { formality, activity, ...(occasions ? { occasions: [...new Set(occasions)] as Occasion[] } : {}) } };
+  });
+  const metadata = new Map(entries.map((item) => [item.category, item]));
+  if (metadata.size !== expected.length || expected.some((category) => !metadata.has(category))) throw new Error(`items must contain one metadata record for exactly ${expected.join(', ')}.`);
+  return metadata;
+}
+
 function monthTitle(month: string) {
   const [year, monthNumber] = month.split('-').map(Number);
   return new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
+}
+
+function createHandoffId() {
+  return `local-import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function validHttpsImageUrl(value: unknown) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) throw new Error('imageUrl must be an HTTPS URL up to 2048 characters.');
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('imageUrl must be a valid HTTPS URL.');
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('imageUrl must be a public HTTPS URL without embedded credentials.');
+  return parsed.toString();
+}
+
+function isTmpFilesUrl(value: string) {
+  const parsed = new URL(value);
+  return TMPFILES_HOSTS.has(parsed.hostname);
+}
+
+async function fetchImageForImport(imageUrl: string) {
+  const target = isTmpFilesUrl(imageUrl) ? `/api/tmpfiles-image?url=${encodeURIComponent(imageUrl)}` : imageUrl;
+  let response: Response;
+  try {
+    response = await fetch(target, { cache: 'no-store' });
+  } catch {
+    throw new Error('The image URL could not be fetched. The host may block browser access (CORS).');
+  }
+  if (!response.ok) {
+    const message = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(message?.error || `The image URL returned HTTP ${response.status}.`);
+  }
+  const declaredType = (response.headers.get('content-type') ?? '').split(';')[0].toLowerCase();
+  const contentLength = Number(response.headers.get('content-length') ?? 0);
+  if (contentLength > HANDOFF_MAX_BYTES) throw new Error('The remote image is larger than CLOTHO’s 8 MB feasibility limit.');
+  const blob = await response.blob();
+  if (blob.size > HANDOFF_MAX_BYTES) throw new Error('The remote image is larger than CLOTHO’s 8 MB feasibility limit.');
+  return { blob, contentType: declaredType || blob.type };
 }
 
 export default function Home() {
@@ -194,15 +362,21 @@ export default function Home() {
   const [weekOptionCount, setWeekOptionCount] = useState<2 | 3>(3);
   const [weekOptions, setWeekOptions] = useState<WeekPlanOption[]>([]);
   const [selectedWeekOption, setSelectedWeekOption] = useState(0);
-  const live = useRef({ items, look, occasion, date, preferences, history, plans, seed, weatherDays, weekOptions });
-  live.current = { items, look, occasion, date, preferences, history, plans, seed, weatherDays, weekOptions };
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState('');
+  const [handoffResult, setHandoffResult] = useState<HandoffProbe | null>(null);
+  const [remoteImageUrl, setRemoteImageUrl] = useState('');
+  const [handoffIncludeHeadwear, setHandoffIncludeHeadwear] = useState(true);
+  const handoffPreviewRef = useRef<string | null>(null);
+  const live = useRef({ items, look, occasion, date, preferences, history, plans, seed, weatherDays, weekOptions, handoffResult });
+  live.current = { items, look, occasion, date, preferences, history, plans, seed, weatherDays, weekOptions, handoffResult };
 
   useEffect(() => {
-    const read = (key: string, legacy: string) => localStorage.getItem(key) ?? localStorage.getItem(legacy);
     try {
-      const savedPreferences = read('clotho:preferences', 'mixmatch:preferences');
-      const savedPlans = read('clotho:plans', 'mixmatch:plans');
-      const savedHistory = read('clotho:history', 'mixmatch:history');
+      const savedPreferences = localStorage.getItem('clotho:preferences');
+      const savedPlans = localStorage.getItem('clotho:plans');
+      const savedHistory = localStorage.getItem('clotho:history');
+      ['mixmatch:preferences', 'mixmatch:plans', 'mixmatch:history'].forEach((key) => localStorage.removeItem(key));
       if (savedPreferences) setPreferences({ ...defaultPreferences, ...JSON.parse(savedPreferences) });
       if (savedPlans) {
         const parsedPlans = JSON.parse(savedPlans);
@@ -227,9 +401,15 @@ export default function Home() {
         const variants = readSavedVariants().map((variant) => ({
           ...variant,
           occasionProfile: variant.occasionProfile ?? baseProfiles.get(variant.variantOf ?? variant.id),
+          colorMetadata: variant.colorMetadata ?? describeColor(variant.color),
         })).filter((variant) => Boolean(variant.occasionProfile));
-        setItems([...manifest.items, ...variants]);
-        setStatus(`${manifest.items.length} wardrobe items and ${variants.length} saved variants ready.`);
+        const imports = readSavedImports().map((item) => ({
+          ...item,
+          occasionProfile: item.occasionProfile ?? { formality: 3, activity: 3 },
+          colorMetadata: item.colorMetadata ?? describeColor(item.color),
+        }));
+        setItems([...manifest.items, ...variants, ...imports]);
+        setStatus(`${manifest.items.length} wardrobe items, ${variants.length} saved variants, and ${imports.length} imported pieces ready.`);
       })
       .catch((error: Error) => setStatus(error.message));
   }, []);
@@ -280,8 +460,10 @@ export default function Home() {
     try {
       // ponytail: localStorage keeps variants dependency-free; use IndexedDB if image volume outgrows browser quota.
       localStorage.setItem('clotho:variants', JSON.stringify(items.filter((item) => item.variantOf && item.variantColor && item.imageSrc)));
+      // ponytail: File/Blob objects and blob URLs are ephemeral; persist only serialized crop previews.
+      localStorage.setItem('clotho:imports', JSON.stringify(items.filter((item) => item.id.startsWith('local-import-') && item.imageSrc)));
     } catch {
-      setStatus('Variant preview is ready, but browser storage is full; remove saved data before saving another.');
+      setStatus('The preview is ready, but browser storage is full; remove saved data before saving another.');
     }
   }, [hydrated, items]);
 
@@ -514,6 +696,103 @@ export default function Home() {
     return variant;
   }
 
+  const importImageUrl = useCallback(async (nextImageUrl: string, includeHeadwear = handoffIncludeHeadwear, metadata?: Map<Category, ImportMetadata>) => {
+    const imageUrl = validHttpsImageUrl(nextImageUrl);
+    setHandoffIncludeHeadwear(includeHeadwear);
+    setRemoteImageUrl(imageUrl);
+    setHandoffBusy(true);
+    setHandoffError('');
+    setHandoffResult(null);
+    live.current.handoffResult = null;
+    setActivePanel('image-import');
+    try {
+      const remote = await fetchImageForImport(imageUrl);
+      const result = await inspectHandoffBlob(remote.blob, imageUrl, remote.contentType);
+      const crops = (await cropHandoffGrid(result.previewUrl, result.width, result.height, includeHeadwear)).map((crop) => ({ ...crop, metadata: metadata?.get(crop.category) }));
+      const handoffId = createHandoffId();
+      const nextResult: HandoffProbe = { ...result, id: handoffId, transport: 'tmpfiles-url', includeHeadwear, remoteUrl: imageUrl, crops, committed: false };
+      live.current.handoffResult = nextResult;
+      setHandoffResult(nextResult);
+      setStatus('Temporary HTTPS image imported. Review the selected pieces before saving.');
+      return {
+        handoffId,
+        imageUrl,
+        source: result.source,
+        contentType: result.contentType,
+        bytes: result.bytes,
+        width: result.width,
+        height: result.height,
+        layout: '2x2',
+        transport: 'tmpfiles-url',
+        requiresConfirmation: true,
+        includeHeadwear,
+        pieces: crops.map(({ category, label, width: cropWidth, height: cropHeight, metadata: itemMetadata }) => ({ category, label, width: cropWidth, height: cropHeight, metadata: itemMetadata ?? null })),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The HTTPS image could not be imported.';
+      setHandoffError(message);
+      setStatus(`Temporary image import failed. ${message}`);
+      throw error;
+    } finally {
+      setHandoffBusy(false);
+    }
+  }, [handoffIncludeHeadwear]);
+
+  const commitHandoff = useCallback((nextHandoffId: string) => {
+    const current = live.current.handoffResult;
+    if (!current || current.id !== nextHandoffId) throw new Error('Import a 2×2 image first, then confirm that handoff ID.');
+    if (!current.crops?.length) throw new Error('Prepare an image first, then confirm its reviewable pieces.');
+    if (current.committed) return { handoffId: current.id, savedCount: 0, itemIds: current.crops.map((crop) => `${current.id}-${crop.category}`), alreadyCommitted: true };
+    const additions: WardrobeItem[] = current.crops.map((crop) => ({
+      id: `${current.id}-${crop.category}`,
+      category: crop.category,
+      name: crop.metadata?.name ?? `Imported ${crop.label.toLowerCase()}`,
+      color: crop.metadata?.color ?? 'unlabeled',
+      style: crop.metadata?.style ?? '2×2 wardrobe import',
+      sourceGrid: current.source,
+      file: `imports/${current.id}-${crop.category}.webp`,
+      occasionProfile: crop.metadata?.occasionProfile ?? { formality: 3, activity: 3 },
+      colorMetadata: describeColor(crop.metadata?.color ?? 'unlabeled'),
+      imageSrc: crop.src,
+    }));
+    const savedImports = [...live.current.items.filter((item) => item.id.startsWith('local-import-') && item.imageSrc), ...additions]
+      .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
+    try {
+      localStorage.setItem('clotho:imports', JSON.stringify(savedImports));
+    } catch {
+      throw new Error('Browser storage is full; CLOTHO could not save these imported pieces.');
+    }
+    setItems((itemsNow) => [...itemsNow, ...additions.filter((addition) => !itemsNow.some((item) => item.id === addition.id))]);
+    const committed = { ...current, committed: true };
+    live.current.handoffResult = committed;
+    setHandoffResult(committed);
+    setStatus(`${additions.length} imported pieces accepted into the wardrobe. Review their labels before using them in recommendations.`);
+    return { handoffId: current.id, savedCount: additions.length, itemIds: additions.map((item) => item.id), alreadyCommitted: false };
+  }, []);
+
+  const removeImportedItem = useCallback((itemId: string) => {
+    const remainingItems = live.current.items.filter((item) => item.id !== itemId);
+    try {
+      localStorage.setItem('clotho:imports', JSON.stringify(remainingItems.filter((item) => item.id.startsWith('local-import-') && item.imageSrc)));
+    } catch {
+      setStatus('Browser storage could not update this imported item.');
+      return;
+    }
+    setItems(remainingItems);
+    setStatus('Imported wardrobe item removed.');
+  }, []);
+
+  useEffect(() => {
+    const previousUrl = handoffPreviewRef.current;
+    const nextUrl = handoffResult?.previewUrl ?? null;
+    if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl);
+    handoffPreviewRef.current = nextUrl;
+  }, [handoffResult?.previewUrl]);
+
+  useEffect(() => () => {
+    if (handoffPreviewRef.current) URL.revokeObjectURL(handoffPreviewRef.current);
+  }, []);
+
   useEffect(() => {
     if (!items.length) return;
     const context = document.modelContext;
@@ -571,18 +850,91 @@ export default function Home() {
     }
 
     register({
+      name: 'commit_wardrobe_items',
+      title: 'Save imported wardrobe pieces',
+      description: 'Commit one previously reviewed image result as local wardrobe items. Requires the handoffId returned by import_image_url; this is the confirmation step and persists image crops in this browser only.',
+      inputSchema: {
+        type: 'object',
+        properties: { handoffId: { type: 'string', description: 'The handoffId returned by import_image_url after the user reviews the crop previews.' } },
+        required: ['handoffId'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      execute(input) {
+        const values = asRecord(input);
+        const handoffId = validString(values.handoffId, 'handoffId').trim();
+        if (!handoffId) throw new Error('handoffId is required.');
+        return commitHandoff(handoffId);
+      },
+    });
+
+    register({
+      name: 'import_image_url',
+      title: 'Import an image URL for the wardrobe',
+      description: 'Import a wardrobe grid from a client-provided temporary HTTPS URL. First, the AI agent must turn an outfit photo into one clean 2×2 catalog image: Top in the top-left, Bottom in the top-right, Shoes in the bottom-left, and Headwear in the bottom-right when present (otherwise leave that cell empty and set includeHeadwear false). Upload that grid to temporary hosting such as TmpFiles, then pass its returned https://tmpfiles.org/{id}/{name} upload-page URL here. Include one complete metadata record per extracted crop: name, color, style, and occasion profile. CLOTHO cannot read a ChatGPT attachment or local filesystem path directly. Set autoAccept true only when the user has asked to save the extracted pieces without manual review; otherwise CLOTHO shows the crop preview and waits.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          imageUrl: { type: 'string', format: 'uri', description: 'The temporary HTTPS upload-page URL for the already-prepared 2×2 wardrobe grid, preferably returned by TmpFiles.' },
+          includeHeadwear: { type: 'boolean', description: 'Keep the bottom-right cell as Headwear (true for 4 pieces, false for Top/Bottom/Shoes only).' },
+          items: {
+            type: 'array',
+            description: 'One complete wardrobe metadata record for each extracted category. Use Top, Bottom, Shoes, and Headwear when includeHeadwear is true; otherwise omit Headwear.',
+            items: {
+              type: 'object',
+              properties: {
+                category: { type: 'string', enum: ['tops', 'bottoms', 'shoes', 'headwear'] },
+                name: { type: 'string' },
+                color: { type: 'string', description: 'A recognized color name or #RRGGBB value used for color matching.' },
+                style: { type: 'string' },
+                occasionProfile: {
+                  type: 'object',
+                  properties: {
+                    formality: { type: 'integer', minimum: 1, maximum: 5 },
+                    activity: { type: 'integer', minimum: 1, maximum: 5 },
+                    occasions: { type: 'array', items: { type: 'string', enum: ['work', 'casual', 'dinner', 'event'] } },
+                  },
+                  required: ['formality', 'activity'],
+                  additionalProperties: false,
+                },
+              },
+              required: ['category', 'name', 'color', 'style', 'occasionProfile'],
+              additionalProperties: false,
+            },
+          },
+          autoAccept: { type: 'boolean', description: 'When true, immediately save the extracted 3 or 4 pieces into this browser’s wardrobe after a successful import. Use only with the user’s explicit save instruction.' },
+        },
+        required: ['imageUrl', 'includeHeadwear', 'items'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, untrustedContentHint: true },
+      async execute(input) {
+        const values = asRecord(input);
+        const includeHeadwear = validBoolean(values.includeHeadwear, 'includeHeadwear', false);
+        const metadata = validImportMetadata(values.items, includeHeadwear);
+        const imported = await importImageUrl(validString(values.imageUrl, 'imageUrl'), includeHeadwear, metadata);
+        const autoAccept = validBoolean(values.autoAccept, 'autoAccept', false);
+        if (!autoAccept) return imported;
+        return { ...imported, accepted: commitHandoff(imported.handoffId) };
+      },
+    });
+
+    register({
       name: 'suggest_outfit',
       title: 'Suggest an outfit',
-      description: 'Select and visibly display one deterministic outfit from this wardrobe for an occasion and preferences.',
+      description: 'Select and visibly display one deterministic outfit from this wardrobe for an occasion, date, preferences, and optional required or excluded item IDs.',
       inputSchema: {
         type: 'object',
         properties: {
           occasion: { type: 'string', enum: ['work', 'casual', 'dinner', 'event'] },
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           palette: { type: 'string', enum: ['balanced', 'neutral', 'colorful'] },
           includeHeadwear: { type: 'boolean' },
           avoid: { type: 'string' },
           note: { type: 'string' },
           seed: { type: 'string' },
+          requiredItemIds: { type: 'array', items: { type: 'string' }, uniqueItems: true, maxItems: 4 },
+          excludedItemIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
         },
         required: ['occasion'],
         additionalProperties: false,
@@ -592,19 +944,24 @@ export default function Home() {
         const state = live.current;
         const values = asRecord(input);
         const nextOccasion = validOccasion(values.occasion);
+        const nextDate = values.date === undefined ? state.date : validIsoDate(values.date);
+        const requiredItemIds = validItemIdList(values.requiredItemIds, 'requiredItemIds');
+        const excludedItemIds = validItemIdList(values.excludedItemIds, 'excludedItemIds');
         const nextPreferences = {
           palette: values.palette === undefined ? state.preferences.palette : validPalette(values.palette),
           includeHeadwear: values.includeHeadwear === undefined ? state.preferences.includeHeadwear : Boolean(values.includeHeadwear),
           avoid: validString(values.avoid, 'avoid', state.preferences.avoid),
           note: validString(values.note, 'note', state.preferences.note),
         };
-        const result = buildOutfit(state.items, nextOccasion, nextPreferences, recentIds(state.history), validString(values.seed, 'seed', `${state.date}:${state.seed + 1}`));
+        const result = buildOutfit(state.items, nextOccasion, nextPreferences, recentIds(state.history), validString(values.seed, 'seed', `${nextDate}:${state.seed + 1}`), { requiredItemIds, excludedItemIds });
+        setDate(nextDate);
+        setCalendarMonth(nextDate.slice(0, 7));
         setOccasion(nextOccasion);
         setPreferences(nextPreferences);
         setLook(result);
         setSeed((current) => current + 1);
         setStatus(`${result.title}. Compatibility ${result.score} out of 100.`);
-        return { outfitId: result.id, title: result.title, score: result.score, itemIds: result.items.map((item) => item.id) };
+        return { outfitId: result.id, date: nextDate, title: result.title, score: result.score, itemIds: result.items.map((item) => item.id), requiredItemIds, excludedItemIds };
       },
     });
 
@@ -763,17 +1120,20 @@ export default function Home() {
     register({
       name: 'generate_outfit_batch',
       title: 'Generate an outfit batch',
-      description: 'Generate and visibly display 1 to 12 distinct wardrobe outfits for one request without image generation. Each call advances a variation seed; pass seed for reproducible results.',
+      description: 'Generate and visibly display 1 to 12 distinct wardrobe outfits for one dated request without image generation. Required item IDs appear in every result; excluded IDs never appear.',
       inputSchema: {
         type: 'object',
         properties: {
           occasion: { type: 'string', enum: ['work', 'casual', 'dinner', 'event'] },
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           count: { type: 'integer', minimum: 1, maximum: 12 },
           palette: { type: 'string', enum: ['balanced', 'neutral', 'colorful'] },
           includeHeadwear: { type: 'boolean' },
           avoid: { type: 'string' },
           note: { type: 'string' },
           seed: { type: 'string' },
+          requiredItemIds: { type: 'array', items: { type: 'string' }, uniqueItems: true, maxItems: 4 },
+          excludedItemIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
         },
         required: ['occasion', 'count'],
         additionalProperties: false,
@@ -783,16 +1143,21 @@ export default function Home() {
         const state = live.current;
         const values = asRecord(input);
         const nextOccasion = validOccasion(values.occasion);
+        const nextDate = values.date === undefined ? state.date : validIsoDate(values.date);
         const count = Number(values.count);
         if (!Number.isInteger(count) || count < 1 || count > 12) throw new Error('count must be an integer from 1 to 12.');
+        const requiredItemIds = validItemIdList(values.requiredItemIds, 'requiredItemIds');
+        const excludedItemIds = validItemIdList(values.excludedItemIds, 'excludedItemIds');
         const nextPreferences = {
           palette: values.palette === undefined ? state.preferences.palette : validPalette(values.palette),
           includeHeadwear: values.includeHeadwear === undefined ? state.preferences.includeHeadwear : Boolean(values.includeHeadwear),
           avoid: validString(values.avoid, 'avoid', state.preferences.avoid),
           note: validString(values.note, 'note', state.preferences.note),
         };
-        const resolvedSeed = values.seed === undefined ? `${state.date}:batch:${batchRevision.current++}` : validString(values.seed, 'seed');
-        const results = buildOutfitBatch(state.items, nextOccasion, nextPreferences, recentIds(state.history), count, resolvedSeed);
+        const resolvedSeed = values.seed === undefined ? `${nextDate}:batch:${batchRevision.current++}` : validString(values.seed, 'seed');
+        const results = buildOutfitBatch(state.items, nextOccasion, nextPreferences, recentIds(state.history), count, resolvedSeed, { requiredItemIds, excludedItemIds });
+        setDate(nextDate);
+        setCalendarMonth(nextDate.slice(0, 7));
         setOccasion(nextOccasion);
         setPreferences(nextPreferences);
         setBatchCount(count);
@@ -801,6 +1166,9 @@ export default function Home() {
         setStatus(`${results.length} distinct ${occasionLabels[nextOccasion].toLowerCase()} looks ready.`);
         return {
           count: results.length,
+          date: nextDate,
+          requiredItemIds,
+          excludedItemIds,
           outfits: results.map((outfit) => ({ outfitId: outfit.id, title: outfit.title, score: outfit.score, itemIds: outfit.items.map((item) => item.id) })),
         };
       },
@@ -809,7 +1177,7 @@ export default function Home() {
     register({
       name: 'plan_outfit_week',
       title: 'Plan an outfit week',
-      description: 'Build 2 or 3 weekly outfit options from cached weather, calendar occasions, preferences, and wear history; show the options for review without scheduling yet.',
+      description: 'Build 2 or 3 weekly outfit options from cached weather, calendar occasions, preferences, and wear history. Required item IDs appear in every generated entry; excluded IDs never appear.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -823,6 +1191,8 @@ export default function Home() {
           avoid: { type: 'string' },
           note: { type: 'string' },
           seed: { type: 'string' },
+          requiredItemIds: { type: 'array', items: { type: 'string' }, uniqueItems: true, maxItems: 4 },
+          excludedItemIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
         },
         required: ['startDate'],
         additionalProperties: false,
@@ -831,7 +1201,7 @@ export default function Home() {
       execute(input) {
         const state = live.current;
         const values = asRecord(input);
-        const startDate = validString(values.startDate, 'startDate');
+        const startDate = validIsoDate(values.startDate, 'startDate');
         const days = values.days === undefined ? 5 : Number(values.days);
         const optionCount = values.optionCount === undefined ? 3 : Number(values.optionCount);
         if (!Number.isInteger(days) || days < 1 || days > 7) throw new Error('days must be an integer from 1 to 7.');
@@ -841,6 +1211,8 @@ export default function Home() {
         const nextDayparts = rawDayparts.map((slot) => validDaypart(slot));
         if (new Set(nextDayparts).size !== nextDayparts.length) throw new Error('dayparts must contain unique slots.');
         const nextOccasion = values.occasion === undefined ? state.occasion : validOccasion(values.occasion);
+        const requiredItemIds = validItemIdList(values.requiredItemIds, 'requiredItemIds');
+        const excludedItemIds = validItemIdList(values.excludedItemIds, 'excludedItemIds');
         const nextPreferences = {
           palette: values.palette === undefined ? state.preferences.palette : validPalette(values.palette),
           includeHeadwear: values.includeHeadwear === undefined ? state.preferences.includeHeadwear : Boolean(values.includeHeadwear),
@@ -859,8 +1231,11 @@ export default function Home() {
           state.weatherDays,
           optionCount,
           validString(values.seed, 'seed', `${startDate}:week`),
+          { requiredItemIds, excludedItemIds },
         );
         setWeekStartDate(startDate);
+        setDate(startDate);
+        setCalendarMonth(startDate.slice(0, 7));
         setWeekDays(days);
         setWeekDaypartsMode(nextDayparts.length === 1 && nextDayparts[0] === 'day' ? 'day' : 'all');
         setWeekOptionCount(optionCount as 2 | 3);
@@ -874,6 +1249,8 @@ export default function Home() {
           startDate,
           days,
           dayparts: nextDayparts,
+          requiredItemIds,
+          excludedItemIds,
           requiresSelection: true,
           options: results.map((option) => ({
             optionId: option.id,
@@ -950,9 +1327,12 @@ export default function Home() {
     });
 
     return () => lifecycle.abort();
-  }, [commitLookVariants, items.length, weatherDays]);
+  }, [commitHandoff, commitLookVariants, handoffIncludeHeadwear, importImageUrl, items.length, weatherDays]);
 
-  const shownItems = useMemo(() => (category === 'all' ? items : items.filter((item) => item.category === category)), [category, items]);
+  const shownItems = useMemo(() => {
+    const matchingItems = category === 'all' ? items : items.filter((item) => item.category === category);
+    return [...matchingItems].sort((left, right) => Number(right.id.startsWith('local-import-')) - Number(left.id.startsWith('local-import-')));
+  }, [category, items]);
   const cells = useMemo(() => monthCells(calendarMonth), [calendarMonth]);
   const selectedDatePlans = useMemo(
     () => plans.filter((plan) => plan.date === date).sort((a, b) => daypartOrder.indexOf(a.slot) - daypartOrder.indexOf(b.slot)),
@@ -977,6 +1357,7 @@ export default function Home() {
     if (recolorPreview?.item.id === item.id) return recolorPreview.src;
     return clean ? cleanImagePath(item) : imagePath(item);
   }, [recolorPreview]);
+  const paletteSliderIndex = Math.max(0, paletteStops.findIndex(({ value }) => value === preferences.palette));
 
   return (
     <main className="min-h-screen bg-[#fcfbf8] text-[#171715]">
@@ -999,6 +1380,7 @@ export default function Home() {
           <button className="nav-link" onClick={() => setActivePanel('week')} type="button">Week plan</button>
           <button className="nav-link" onClick={() => setActivePanel('journal')} type="button">History + taste</button>
           <button className="nav-link hidden sm:inline" onClick={() => setActivePanel('recolor')} type="button">Recolor</button>
+          <button className="nav-link" onClick={() => setActivePanel('image-import')} type="button">Image import</button>
         </nav>
       </header>
 
@@ -1080,14 +1462,34 @@ export default function Home() {
         <div className="mx-auto max-w-[1372px]">
           <div className="section-heading"><div><p className="eyebrow">Wardrobe</p><h2>Everything already owned.</h2></div><p>{items.length} wardrobe pieces, including {items.filter((item) => item.variantOf).length} saved color variants. CLOTHO combines these references instead of paying to generate each outfit.</p></div>
           <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3 border-b border-black/10 pb-4">{Object.entries(categoryLabels).map(([value, label]) => <button className={`filter-link ${category === value ? 'is-active' : ''}`} key={value} onClick={() => setCategory(value as keyof typeof categoryLabels)} type="button">{value === 'all' ? `${label} ${items.length}` : label}</button>)}</div>
-          <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-9 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{shownItems.map((item) => <figure key={item.id}><div className="aspect-square overflow-hidden bg-white"><img className="h-full w-full object-contain p-[7%]" src={displayPath(item)} alt={`${item.name}, ${item.color}`} loading="lazy" /></div><figcaption className="mt-3"><p className="font-serif text-base leading-tight">{item.name}</p><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-black/42">{item.id} · {item.color}</p></figcaption></figure>)}</div>
+          <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-9 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{shownItems.map((item) => <figure key={item.id}><div className="aspect-square overflow-hidden bg-white"><img className="h-full w-full object-contain p-[7%]" src={displayPath(item)} alt={`${item.name}, ${item.color}`} loading="lazy" /></div><figcaption className="mt-3"><p className="font-serif text-base leading-tight">{item.name}</p><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-black/42">{item.id} · {item.color}</p>{item.id.startsWith('local-import-') && <button className="text-link mt-2 text-[11px] text-[#972d3f]" onClick={() => removeImportedItem(item.id)} type="button">Remove</button>}</figcaption></figure>)}</div>
+        </div>
+      </section>}
+
+      {activePanel === 'image-import' && <section id="image-import" className="panel-sheet">
+        <div className="mx-auto max-w-[1372px]">
+          <div className="image-import-minimal"><p className="eyebrow">Wardrobe import</p><h2>Add an image to your wardrobe.</h2></div>
+          <div className="image-import-url">
+            <label className="field-line"><span>Image URL</span><input aria-label="Image URL" type="url" placeholder="https://..." value={remoteImageUrl} onChange={(event) => { setRemoteImageUrl(event.target.value); setHandoffError(''); }} /></label>
+            <button className="text-link" disabled={!remoteImageUrl.trim() || handoffBusy} onClick={() => void importImageUrl(remoteImageUrl.trim(), handoffIncludeHeadwear).catch((error) => setHandoffError(error instanceof Error ? error.message : 'The image URL could not be imported.'))} type="button">Preview image →</button>
+          </div>
+          <label className="field-line image-import-layout"><span>Grid includes</span><select aria-label="Grid includes" value={handoffIncludeHeadwear ? 'headwear' : 'no-headwear'} onChange={(event) => { const includeHeadwear = event.target.value === 'headwear'; setHandoffIncludeHeadwear(includeHeadwear); setHandoffResult(null); live.current.handoffResult = null; setHandoffError(''); }}><option value="headwear">Headwear · 4 pieces</option><option value="no-headwear">No headwear · 3 pieces</option></select></label>
+          {handoffBusy && <output className="handoff-message">Preparing…</output>}
+          {handoffError && <p className="handoff-minimal-error" role="alert">{handoffError}</p>}
+          {handoffResult && <figure className="handoff-result">
+            <div className="handoff-result-media">
+              <div className="handoff-preview"><img src={handoffResult.previewUrl} alt="Imported wardrobe preview" /></div>
+              {handoffResult.crops && <div className="handoff-crops" aria-label="Selected wardrobe crop previews">{handoffResult.crops.map((crop) => <figure className="handoff-crop" key={crop.category}><div><img src={crop.src} alt={`${crop.label} crop preview`} /></div><figcaption>{crop.label}</figcaption></figure>)}</div>}
+            </div>
+            <figcaption className="handoff-result-caption"><div><p className="eyebrow">{handoffResult.remoteUrl ? 'Image URL' : 'Local image'}</p>{handoffResult.remoteUrl ? <a className="local-image-source" href={handoffResult.remoteUrl} rel="noreferrer" target="_blank">{handoffResult.remoteUrl} ↗</a> : <code className="local-image-source">{handoffResult.source}</code>}{handoffResult.committed ? <p className="handoff-confirmed">Saved locally.</p> : <button className="text-link" onClick={() => { try { commitHandoff(handoffResult.id); } catch (error) { setHandoffError(error instanceof Error ? error.message : 'The wardrobe import could not be saved.'); } }} type="button">Accept {handoffResult.crops?.length ?? 0} pieces →</button>}</div></figcaption>
+          </figure>}
         </div>
       </section>}
 
       {activePanel === 'calendar' && <section id="calendar" className="panel-sheet">
         <div className="mx-auto max-w-[1372px]">
           <div className="section-heading"><div><p className="eyebrow">Calendar</p><h2>Decide once. Wear later.</h2></div><p>A real seven-column month view. Each date holds up to three moments: morning, day, and evening.</p></div>
-          <div className="weather-strip"><span className="eyebrow">Weather / New York City</span><span>{weatherStatus}</span></div>
+          <div className="weather-strip"><span className="eyebrow">Weather · New York City</span><span>{weatherStatus}</span></div>
           <div className="calendar-toolbar mt-6"><button aria-label="Previous month" onClick={() => setCalendarMonth(shiftMonth(calendarMonth, -1))} type="button">←</button><p>{monthTitle(calendarMonth)}</p><button aria-label="Next month" onClick={() => setCalendarMonth(shiftMonth(calendarMonth, 1))} type="button">→</button></div>
           <div className="calendar-scroll">
             <div className="calendar-grid" aria-label={monthTitle(calendarMonth)}>
@@ -1101,7 +1503,7 @@ export default function Home() {
           </div>
           <div className="calendar-editor">
             <div className="calendar-editor-heading">
-              <div><p className="eyebrow">Selected date / {date}</p><h3>{selectedDatePlans.length ? `${selectedDatePlans.length} planned moment${selectedDatePlans.length === 1 ? '' : 's'}` : 'No planned moments yet'}</h3></div>
+              <div><p className="eyebrow">Selected date · {date}</p><h3>{selectedDatePlans.length ? `${selectedDatePlans.length} planned moment${selectedDatePlans.length === 1 ? '' : 's'}` : 'No planned moments yet'}</h3></div>
               <button className="text-link" onClick={() => setActivePanel(null)} type="button">Back to planner ↗</button>
             </div>
             {selectedDatePlans.length ? <div className="calendar-edit-list">{selectedDatePlans.map((plan) => <article className="calendar-edit-row" key={plan.id}>
@@ -1112,7 +1514,7 @@ export default function Home() {
               <div className="calendar-edit-actions"><button className="text-link" onClick={() => editPlan(plan)} type="button">Edit</button><button className="text-link text-[#972d3f]" onClick={() => removePlan(plan)} type="button">Remove</button></div>
             </article>)}</div> : <p className="calendar-empty">Select a moment in the planner, then place a look here.</p>}
             <div className="calendar-add" id="calendar-add">
-              <div className="calendar-editor-heading"><div><p className="eyebrow">Add a moment / {date}</p><h3>Select each piece.</h3></div>{calendarDraft && <span>{calendarDraft.score}/100 fit</span>}</div>
+              <div className="calendar-editor-heading"><div><p className="eyebrow">Add a moment · {date}</p><h3>Select each piece.</h3></div>{calendarDraft && <span>{calendarDraft.score}/100 fit</span>}</div>
               <label className="field-line calendar-add-occasion"><span>Moment</span><select value={daypart} onChange={(event) => setDaypart(event.target.value as Daypart)}>{daypartOrder.map((slot) => <option key={slot} value={slot}>{daypartLabels[slot]}</option>)}</select></label>
               <label className="field-line calendar-add-occasion"><span>Occasion</span><select value={occasion} onChange={(event) => { const nextOccasion = event.target.value as Occasion; setOccasion(nextOccasion); makeLook(nextOccasion, preferences, seed + 1); }}>{Object.entries(occasionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <div className="calendar-item-grid">
@@ -1138,19 +1540,27 @@ export default function Home() {
         </div>
         <div className="history-layout">
           <div className="history-column">
-            <div className="history-column-heading"><div><p className="eyebrow">Wear history / 03</p><h3>Recent rotation</h3></div><span>{history.length ? `Latest ${history[0].date}` : 'No entries yet'}</span></div>
+            <div className="history-column-heading"><div><p className="eyebrow">Wear history</p><h3>Recent rotation</h3></div><span>{history.length ? `Latest ${history[0].date}` : 'No entries yet'}</span></div>
             <div className="history-timeline">{history.length ? history.slice(0, 8).map((entry) => <article className="history-entry" key={entry.id}>
               <div className="history-entry-rule" />
-              <div className="history-entry-body"><div className="flex items-start justify-between gap-5"><div><p className="font-serif text-2xl leading-none">{entry.outfit.title}</p><p className="mt-2 text-[10px] uppercase tracking-[.14em] text-black/42">Worn {entry.date} · {entry.outfit.score}/100</p></div><button className="text-link" onClick={() => reuseHistoryLook(entry)} type="button">Use look ↗</button></div><div className="history-item-list">{entry.outfit.items.map((item) => <span key={item.id}>{item.name}</span>)}</div></div>
+              <div className="history-entry-body"><div className="history-entry-main">
+                <button aria-label={`Preview ${entry.outfit.title} worn ${entry.date}`} className="calendar-outfit-preview history-outfit-preview" onClick={() => openLookPreview(entry.outfit, `Worn · ${entry.date}`)} type="button">{outfitOrder.map((slot) => { const item = entry.outfit.items.find((candidate) => candidate.category === slot); return item ? <img className={`calendar-preview-piece calendar-preview-piece--${slot}`} key={slot} src={displayPath(item)} alt="" /> : null; })}</button>
+                <div className="history-entry-copy"><div className="history-entry-header"><div><p className="history-entry-title">{entry.outfit.title}</p><p className="history-entry-meta">Worn {entry.date} · {entry.outfit.score}/100</p></div><button className="text-link history-entry-use" onClick={() => reuseHistoryLook(entry)} type="button">Use look ↗</button></div><div className="history-item-list">{entry.outfit.items.map((item) => <span key={item.id}>{item.name}</span>)}</div></div>
+              </div></div>
             </article>) : <p className="history-empty">Your first wear will appear here. Use “I wore this” from the planner.</p>}</div>
             {wornItems.length > 0 && <div className="worn-items"><p className="eyebrow">Most repeated pieces</p><div className="worn-item-list">{wornItems.map(({ item, count }) => <span key={item.id}>{item.name} <b>×{count}</b></span>)}</div></div>}
           </div>
           <div id="preferences" className="taste-column">
             <div className="history-column-heading"><div><p className="eyebrow">Taste</p><h3>Make the rules yours.</h3></div><span>Live ranking</span></div>
             <p className="taste-intro">These are constraints, not a generator. CLOTHO still chooses only from your saved wardrobe references.</p>
-            <div className="taste-field"><p className="eyebrow">Palette</p><fieldset className="taste-choices"><legend className="sr-only">Palette preference</legend>
-              {([{ value: 'balanced', label: 'Balanced', note: 'quiet contrast' }, { value: 'neutral', label: 'Mostly neutral', note: 'soft harmony' }, { value: 'colorful', label: 'More color', note: 'higher contrast' }] as { value: Palette; label: string; note: string }[]).map((choice) => <button className={`taste-choice ${preferences.palette === choice.value ? 'is-active' : ''}`} key={choice.value} onClick={() => updatePreferences({ ...preferences, palette: choice.value })} type="button"><span>{choice.label}</span><small>{choice.note}</small></button>)}
-            </fieldset></div>
+            <div className="taste-field"><div className="taste-field-heading"><p className="eyebrow">Palette direction</p><span className="taste-slider-current">{paletteStops[paletteSliderIndex].label}</span></div>
+              <div className="taste-slider">
+                <div aria-hidden="true" className="taste-slider-track"><span className="taste-slider-progress" style={{ width: `${paletteSliderIndex * 50}%` }} /></div>
+                <input aria-label="Palette direction" aria-valuetext={`${paletteStops[paletteSliderIndex].label}: ${paletteStops[paletteSliderIndex].note}`} className="taste-slider-input" max={paletteStops.length - 1} min="0" onChange={(event) => { const nextPalette = paletteStops[Number(event.target.value)]?.value; if (nextPalette) updatePreferences({ ...preferences, palette: nextPalette }); }} step="1" type="range" value={paletteSliderIndex} />
+                <div aria-hidden="true" className="taste-slider-stops">{paletteStops.map((stop) => <span key={stop.value}>{stop.label}</span>)}</div>
+              </div>
+              <p className="taste-slider-caption">Drag from soft harmony to higher contrast. This is the same palette value used by recommendations and WebMCP.</p>
+            </div>
             <label className="taste-field taste-avoid"><span className="eyebrow">Avoid a color or style</span><input aria-label="Color or style to avoid" placeholder="e.g. orange" type="text" value={preferences.avoid} onChange={(event) => setPreferences({ ...preferences, avoid: event.target.value })} onBlur={(event) => updatePreferences({ ...preferences, avoid: event.currentTarget.value })} /><small>Applied when you leave the field; matching pieces drop out of the next score.</small></label>
             <label className="taste-field taste-avoid"><span className="eyebrow">Personal taste note</span><input aria-label="Personal taste note" placeholder="e.g. relaxed tailoring, quiet layers" type="text" value={preferences.note} onChange={(event) => setPreferences({ ...preferences, note: event.target.value })} onBlur={(event) => updatePreferences({ ...preferences, note: event.currentTarget.value })} /><small>Saved for WebMCP context; matching words gently influence the next ranking.</small></label>
             <label aria-label="Include headwear" className="taste-toggle"><span><span className="eyebrow">Headwear</span><small>Keep a fourth piece in the silhouette.</small></span><input checked={preferences.includeHeadwear} className="h-4 w-4 accent-[#972d3f]" onChange={(event) => updatePreferences({ ...preferences, includeHeadwear: event.target.checked })} type="checkbox" /></label>
@@ -1186,7 +1596,16 @@ export default function Home() {
           <button className="text-link mt-7" onClick={() => generateWeekPlan()} type="button">Build weekly options →</button>
           {weekOptions.length ? <div className="week-options mt-10">{weekOptions.map((option, index) => <article className={`week-option ${selectedWeekOption === index ? 'is-selected' : ''}`} key={option.id}>
             <div className="flex items-start justify-between gap-5"><div><p className="eyebrow">{option.label}</p><p className="mt-2 font-serif text-2xl">{option.score}/100 average fit</p></div><button className="text-link" onClick={() => setSelectedWeekOption(index)} type="button">{selectedWeekOption === index ? 'Selected' : 'Review option'}</button></div>
-            <div className="week-schedule mt-6">{option.entries.map((entry) => <div className="week-entry" key={`${entry.date}-${entry.slot}`}><div><p className="eyebrow">{entry.date} · {daypartLabels[entry.slot]}</p><p className="mt-1 font-serif text-base">{occasionLabels[entry.occasion]} · {entry.score}/100</p><p className="mt-1 text-[11px] leading-5 text-black/48">{entry.outfit.items.map((item) => item.name).join(' · ')}</p></div><span className="text-[10px] uppercase tracking-[.1em] text-black/40">{entry.weather ? `${entry.weather.low}°/${entry.weather.high}° · ${entry.weather.precipitation}% rain` : 'No forecast'}</span></div>)}</div>
+            <div className="week-schedule-scroll mt-6">
+              <div aria-label={`${option.label} daily outfit previews`} className="week-schedule">{option.entries.map((entry) => <div className="week-entry" key={`${entry.date}-${entry.slot}`}>
+                <div className="week-entry-header"><div><p className="eyebrow">{entry.date}</p><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-black/45">{daypartLabels[entry.slot]}</p></div><span className="week-entry-weather">{entry.weather ? <><span>{weatherIcon(entry.weather.code)}</span><small>{entry.weather.low}°/{entry.weather.high}° · {entry.weather.precipitation}% rain</small></> : <small>No forecast</small>}</span></div>
+                <p className="mt-3 font-serif text-base">{occasionLabels[entry.occasion]} · {entry.score}/100</p>
+                <button aria-label={`Preview ${occasionLabels[entry.occasion]} outfit for ${entry.date} ${daypartLabels[entry.slot].toLowerCase()}`} className="week-entry-preview" onClick={() => openLookPreview(entry.outfit, `${daypartLabels[entry.slot]} · ${entry.date}`)} type="button">
+                  <div aria-hidden="true" className="week-look">{outfitOrder.map((slot) => { const item = entry.outfit.items.find((candidate) => candidate.category === slot); return item ? <img className={`week-look-piece week-look-piece--${slot}`} key={slot} src={displayPath(item, true)} alt="" /> : null; })}</div>
+                </button>
+                <p className="week-entry-items">{entry.outfit.items.map((item) => item.name).join(' · ')}</p>
+              </div>)}</div>
+            </div>
             <div className="week-notes mt-6 grid gap-5 border-t border-black/10 pt-5 md:grid-cols-2"><div><p className="eyebrow">Conflicts</p><p className="mt-2 text-xs leading-5 text-black/55">{option.conflicts.length ? option.conflicts.join(' ') : 'None detected in the cached forecast.'}</p></div><div><p className="eyebrow">Trade-offs</p><p className="mt-2 text-xs leading-5 text-black/55">{option.tradeoffs.length ? option.tradeoffs.join(' ') : 'No meaningful trade-offs detected.'}</p></div></div>
             <button className="text-link mt-7" onClick={() => applyWeekPlan(option)} type="button">Apply this option to calendar →</button>
           </article>)}</div> : <p className="mt-12 border-t border-black/10 py-8 font-serif text-xl text-black/38">Build options to see the week’s constraints and choices.</p>}
@@ -1231,7 +1650,7 @@ export default function Home() {
       {activePanel && <button className="panel-close text-link" onClick={() => setActivePanel(null)} type="button">Close panel ↘</button>}
       {activePanel && <button aria-label="Close by clicking outside the panel" className="panel-backdrop" onClick={() => setActivePanel(null)} type="button" />}
 
-      <footer className="border-t border-black/10 px-5 py-10 md:px-10 lg:px-16"><div className="mx-auto flex max-w-[1372px] flex-col justify-between gap-6 text-[10px] uppercase tracking-[.13em] text-black/45 sm:flex-row"><p>CLOTHO · Classy Looks for Occasion, Taste, History &amp; Outfits</p><p>WebMCP: search · suggest · batch · week · apply · schedule · remove · weather · record · prefer · recolor</p></div></footer>
+      <footer className="border-t border-black/10 px-5 py-10 md:px-10 lg:px-16"><div className="mx-auto flex max-w-[1372px] flex-col justify-between gap-6 text-[10px] uppercase tracking-[.13em] text-black/45 sm:flex-row"><p>CLOTHO · Classy Looks for Occasion, Taste, History &amp; Outfits</p><p>WebMCP: search · suggest · batch · week · apply · schedule · remove · weather · record · prefer · recolor · import · commit</p></div></footer>
       <output aria-live="polite" className="sr-only">{status}</output>
     </main>
   );

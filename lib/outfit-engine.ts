@@ -1,6 +1,7 @@
 export type Category = 'tops' | 'bottoms' | 'shoes' | 'headwear';
 export type ColorFamily = 'neutral' | 'warm' | 'cool' | 'mixed' | 'other';
 export type OccasionProfile = { formality: number; activity: number; occasions?: Occasion[] };
+export type ColorMetadata = { label: string; family: ColorFamily; hue: number | null; lightness: number; chroma: number; aliases: string[] };
 
 export type WardrobeItem = {
   id: string;
@@ -11,6 +12,7 @@ export type WardrobeItem = {
   sourceGrid: string;
   file: string;
   occasionProfile?: OccasionProfile;
+  colorMetadata?: ColorMetadata;
   variantOf?: string;
   variantColor?: string;
   imageSrc?: string;
@@ -25,6 +27,8 @@ export type Preferences = {
   avoid: string;
   note: string;
 };
+
+export type OutfitConstraints = { requiredItemIds?: string[]; excludedItemIds?: string[] };
 
 export type Outfit = {
   id: string;
@@ -133,6 +137,55 @@ export function analyzeColor(color: string): ColorProfile {
   };
 }
 
+function normalizeColorText(value: string) {
+  return value.toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function colorWords(value: string) {
+  return normalizeColorText(value).split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function colorProfileDistance(left: ColorProfile, right: ColorProfile) {
+  const hueDistanceScore = left.hue === null || right.hue === null ? (left.hue === right.hue ? 0 : 1) : hueDistance(left.hue, right.hue) / 180;
+  return hueDistanceScore * 2 + Math.abs(left.lightness - right.lightness) * 2 + Math.abs(left.chroma - right.chroma);
+}
+
+function nearestNamedColor(profile: ColorProfile) {
+  if (!profile.components.length) return null;
+  let nearest: { name: string; distance: number } | null = null;
+  for (const [name, hex] of namedColorEntries) {
+    const distance = colorProfileDistance(profile, analyzeColor(hex));
+    if (!nearest || distance < nearest.distance) nearest = { name, distance };
+  }
+  return nearest?.name ?? null;
+}
+
+function fallbackColorLabel(profile: ColorProfile) {
+  if (profile.family === 'neutral') {
+    if (profile.lightness <= 0.2) return 'black';
+    if (profile.lightness >= 0.9) return 'white';
+    return 'gray';
+  }
+  if (profile.hue === null) return profile.family;
+  if (profile.hue >= 330 || profile.hue < 15) return profile.lightness < 0.4 ? 'burgundy' : 'red';
+  if (profile.hue < 40) return 'orange';
+  if (profile.hue < 70) return 'yellow';
+  if (profile.hue < 175) return 'green';
+  if (profile.hue < 200) return 'teal';
+  if (profile.hue < 260) return 'blue';
+  if (profile.hue < 300) return 'purple';
+  return 'pink';
+}
+
+export function describeColor(color: string): ColorMetadata {
+  const normalized = normalizeColorText(String(color ?? ''));
+  const profile = analyzeColor(color);
+  const isHex = /^#[0-9a-f]{6}$/i.test(normalized);
+  const label = isHex ? nearestNamedColor(profile) ?? fallbackColorLabel(profile) : normalized || fallbackColorLabel(profile);
+  const aliases = new Set([label, ...colorWords(label), ...colorWords(normalized), profile.family]);
+  return { label, family: profile.family, hue: profile.hue, lightness: profile.lightness, chroma: profile.chroma, aliases: [...aliases] };
+}
+
 function colorFamily(color: string) {
   return analyzeColor(color).family;
 }
@@ -169,7 +222,45 @@ function hash(value: string) {
 }
 
 function phrase(item: WardrobeItem) {
-  return `${item.name} ${item.color} ${item.style}`.toLowerCase();
+  const metadata = item.colorMetadata ?? describeColor(item.color);
+  return `${item.name} ${item.color} ${metadata.label} ${metadata.family} ${metadata.aliases.join(' ')} ${item.style}`.toLowerCase();
+}
+
+// ponytail: color only nudges occasion fit by one point; the garment profile remains authoritative.
+export function colorOccasionAdjustment(profile: ColorProfile, occasion: Occasion) {
+  if (profile.family === 'other') return 0;
+  if (occasion === 'casual') return profile.family !== 'neutral' && profile.chroma >= 0.25 ? 1 : 0;
+  if (profile.family === 'neutral') return 1;
+  if (profile.chroma > 0.65 || profile.lightness > 0.85) return -1;
+  if (profile.lightness <= 0.32 || profile.chroma < 0.28) return 1;
+  return 0;
+}
+
+function normalizeItemIds(value: string[] | undefined, field: string) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((itemId) => typeof itemId !== 'string' || !itemId.trim())) throw new Error(`${field} must be an array of non-empty item IDs.`);
+  return [...new Set(value.map((itemId) => itemId.trim()))];
+}
+
+function resolveConstraints(items: WardrobeItem[], constraints: OutfitConstraints) {
+  const requiredIds = normalizeItemIds(constraints.requiredItemIds, 'requiredItemIds');
+  const excludedIds = new Set(normalizeItemIds(constraints.excludedItemIds, 'excludedItemIds'));
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  for (const itemId of excludedIds) {
+    if (!itemById.has(itemId)) throw new Error(`Unknown excluded wardrobe item: ${itemId}.`);
+  }
+  const requiredItems = requiredIds.map((itemId) => {
+    const item = itemById.get(itemId);
+    if (!item) throw new Error(`Unknown required wardrobe item: ${itemId}.`);
+    if (excludedIds.has(itemId)) throw new Error(`Item ${itemId} cannot be both required and excluded.`);
+    return item;
+  });
+  const requiredCategories = new Set<Category>();
+  for (const item of requiredItems) {
+    if (requiredCategories.has(item.category)) throw new Error(`Only one required item per category is supported; ${item.category} was repeated.`);
+    requiredCategories.add(item.category);
+  }
+  return { requiredItems, excludedIds, requiredCategories };
 }
 
 // ponytail: two explicit dimensions keep metadata small; add season or venue only when the catalog needs them.
@@ -184,6 +275,7 @@ export function occasionFit(item: WardrobeItem, occasion: Occasion) {
   let score = 4 - distance;
   if (occasions.includes(occasion)) score += 2;
   else if (occasions.length) score -= 1;
+  score += colorOccasionAdjustment(analyzeColor(item.color), occasion);
   return Math.max(-5, Math.min(6, score));
 }
 
@@ -241,14 +333,23 @@ export function buildOutfit(
   preferences: Preferences,
   recentItemIds: string[],
   seed: string,
+  constraints: OutfitConstraints = {},
 ): Outfit {
+  const resolved = resolveConstraints(items, constraints);
   const selected: WardrobeItem[] = [];
-  const categories: Category[] = preferences.includeHeadwear
+  const includeHeadwear = preferences.includeHeadwear || resolved.requiredCategories.has('headwear');
+  const categories: Category[] = includeHeadwear
     ? ['tops', 'bottoms', 'shoes', 'headwear']
     : ['tops', 'bottoms', 'shoes'];
 
   for (const category of categories) {
-    const candidates = items.filter((item) => item.category === category);
+    const required = resolved.requiredItems.find((item) => item.category === category);
+    if (required) {
+      selected.push(required);
+      continue;
+    }
+    const candidates = items.filter((item) => item.category === category && !resolved.excludedIds.has(item.id));
+    if (!candidates.length && category !== 'headwear' && items.some((item) => item.category === category)) throw new Error(`No ${category} remain after the requested item constraints.`);
     const best = pickBest(candidates, selected, occasion, preferences, recentItemIds, `${seed}:${category}`);
     if (best) selected.push(best);
   }
@@ -308,12 +409,13 @@ export function buildOutfitBatch(
   recentItemIds: string[],
   count: number,
   seed: string,
+  constraints: OutfitConstraints = {},
 ) {
   if (!Number.isInteger(count) || count < 1 || count > 12) throw new Error('count must be an integer from 1 to 12.');
   const results: Outfit[] = [];
   const combinations = new Set<string>();
   for (let attempt = 0; results.length < count && attempt < count * 20; attempt += 1) {
-    const outfit = buildOutfit(items, occasion, preferences, recentItemIds, `${seed}:${attempt}`);
+    const outfit = buildOutfit(items, occasion, preferences, recentItemIds, `${seed}:${attempt}`, constraints);
     const combination = outfit.items.map((item) => item.id).sort().join(':');
     if (combinations.has(combination)) continue;
     combinations.add(combination);
