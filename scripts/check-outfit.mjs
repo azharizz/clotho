@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { buildOutfit, buildOutfitBatch, buildCustomOutfit } from '../lib/outfit-engine.ts';
+import { analyzeColor, buildOutfit, buildOutfitBatch, buildCustomOutfit, occasionFit } from '../lib/outfit-engine.ts';
 
 const manifest = JSON.parse(await readFile(new URL('../public/items/manifest.json', import.meta.url)));
 const preferences = { palette: 'balanced', includeHeadwear: true, avoid: '' };
@@ -8,16 +8,23 @@ const first = buildOutfit(manifest.items, 'work', preferences, [], '2026-09-02')
 const repeated = buildOutfit(manifest.items, 'work', preferences, [], '2026-09-02');
 const noHat = buildOutfit(manifest.items, 'casual', { ...preferences, includeHeadwear: false }, [], '2026-09-03');
 const historyAware = buildOutfit(manifest.items, 'work', preferences, first.items.map((item) => item.id), '2026-09-02');
-const noteBaseline = buildOutfit(manifest.items, 'casual', preferences, [], '2026-09-02');
-const noteAware = buildOutfit(manifest.items, 'casual', { ...preferences, note: 'satin camisole' }, [], '2026-09-02');
+const noteAware = buildOutfit(manifest.items, 'casual', { ...preferences, note: 'utility overshirt' }, [], '2026-09-02');
 
 assert.equal(first.items.length, 4);
 assert.deepEqual(first, repeated, 'same inputs must produce the same outfit');
 assert.notDeepEqual(historyAware.items.map((item) => item.id), first.items.map((item) => item.id), 'wear history should lower recently worn items');
-assert.notEqual(noteAware.items.find((item) => item.category === 'tops')?.id, noteBaseline.items.find((item) => item.category === 'tops')?.id, 'taste notes should influence matching item terms');
+assert.equal(noteAware.items.find((item) => item.category === 'tops')?.id, 'top-05', 'taste notes should influence matching item terms');
 assert.equal(noHat.items.length, 3);
 assert.deepEqual(noHat.items.map((item) => item.category), ['tops', 'bottoms', 'shoes']);
 assert.ok(first.score >= 58 && first.score <= 97);
+assert.equal(analyzeColor('white and forest green').family, 'mixed', 'multi-color metadata should remain mixed');
+assert.equal(analyzeColor('#7A1F3D').family, 'warm', 'recolor hex should use deterministic hue classification');
+assert.equal(analyzeColor('#F4EDCF').family, 'neutral', 'light recolor hex should classify as neutral');
+const tailoredTrousers = manifest.items.find((item) => item.id === 'bottom-00');
+const oversizedHoodie = manifest.items.find((item) => item.id === 'top-04');
+assert.ok(occasionFit(tailoredTrousers, 'work') > occasionFit(tailoredTrousers, 'casual'), 'tailored trousers should favor work');
+assert.ok(occasionFit(oversizedHoodie, 'casual') > occasionFit(oversizedHoodie, 'event'), 'hoodies should favor casual');
+assert.throws(() => occasionFit({ ...tailoredTrousers, occasionProfile: undefined }, 'work'), /missing its occasion profile/, 'profile-less items should not use legacy keyword scoring');
 const batch = buildOutfitBatch(manifest.items, 'dinner', preferences, [], 6, 'batch-demo');
 const nextBatch = buildOutfitBatch(manifest.items, 'dinner', preferences, [], 6, 'batch-demo-next');
 assert.equal(batch.length, 6);

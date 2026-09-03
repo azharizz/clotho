@@ -88,6 +88,7 @@ function makeRecolorVariant(baseItem: WardrobeItem, color: string, imageSrc: str
     style: `${baseItem.style} · recolored`,
     sourceGrid: baseItem.sourceGrid,
     file: baseItem.file,
+    occasionProfile: baseItem.occasionProfile,
     variantOf: baseId,
     variantColor: normalizedColor,
     imageSrc,
@@ -221,7 +222,12 @@ export default function Home() {
         return response.json() as Promise<{ items: WardrobeItem[] }>;
       })
       .then((manifest) => {
-        const variants = readSavedVariants();
+        const baseProfiles = new Map(manifest.items.map((item) => [item.id, item.occasionProfile]));
+        // ponytail: migrate older variants from their base profile; no keyword-scoring fallback remains.
+        const variants = readSavedVariants().map((variant) => ({
+          ...variant,
+          occasionProfile: variant.occasionProfile ?? baseProfiles.get(variant.variantOf ?? variant.id),
+        })).filter((variant) => Boolean(variant.occasionProfile));
         setItems([...manifest.items, ...variants]);
         setStatus(`${manifest.items.length} wardrobe items and ${variants.length} saved variants ready.`);
       })
@@ -343,15 +349,6 @@ export default function Home() {
     setPlans((current) => [entry, ...current.filter((plan) => plan.date !== nextDate || plan.slot !== daypart)].sort((a, b) => a.date.localeCompare(b.date) || daypartOrder.indexOf(a.slot) - daypartOrder.indexOf(b.slot)));
     setCalendarMonth(nextDate.slice(0, 7));
     setStatus(`${nextLook.title} planned for ${daypartLabels[daypart].toLowerCase()} on ${nextDate}.`);
-  }
-
-  function recordWear(nextLook = look, nextDate = date) {
-    if (!nextLook) return;
-    const committed = commitLookVariants(nextLook);
-    const entry = { id: `wear-${Date.now()}`, date: nextDate, outfit: committed.outfit };
-    setHistory((current) => [entry, ...current]);
-    setLook(committed.outfit);
-    setStatus(committed.savedCount ? `Saved ${committed.savedCount} recolored ${committed.savedCount === 1 ? 'piece' : 'pieces'} and recorded ${nextLook.title} as worn on ${nextDate}.` : `Recorded ${nextLook.title} as worn on ${nextDate}.`);
   }
 
   const commitLookVariants = useCallback((nextLook: Outfit) => {
@@ -1074,11 +1071,7 @@ export default function Home() {
           </div>
           <div className="mt-12 border-t border-black/10 pt-5">
             <button className="text-link text-base" onClick={() => planLook()} type="button">Place look on calendar →</button>
-            <button className="ml-6 border-0 bg-transparent p-0 text-[11px] text-black/45 underline decoration-black/25 underline-offset-4" onClick={() => recordWear()} type="button">I wore this</button>
-            <button className="ml-6 border-0 bg-transparent p-0 text-[11px] text-black/45 underline decoration-black/25 underline-offset-4" onClick={() => generateBatch()} type="button">Generate batch</button>
-            <button className="ml-6 border-0 bg-transparent p-0 text-[11px] text-black/45 underline decoration-black/25 underline-offset-4" onClick={() => { setWeekStartDate(date); setActivePanel('week'); }} type="button">Plan a week</button>
             <p className="mt-3 text-[11px] leading-5 text-black/40">Up to three moments per day: morning, day, and evening. Browser-local, WebMCP-readable.</p>
-            <p className="mt-1 text-[11px] leading-5 text-black/40">“I wore this” records the look and saves any inline recolor previews to your wardrobe.</p>
           </div>
         </aside>
       </section>
