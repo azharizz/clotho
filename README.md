@@ -1,9 +1,10 @@
 <p align="center">
-  <img src="docs/assets/clotho-readme-banner.png" alt="CLOTHO — wardrobe intelligence, made visible" width="100%">
+  <img src="docs/assets/clotho-readme-banner.png" alt="CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits" width="100%">
 </p>
 
 <div align="center">
-  <p><strong>One wardrobe. A changing week. One decision system.</strong></p>
+  <p><strong>CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits</strong></p>
+  <p>One wardrobe. A changing week. One decision system.</p>
   <p>
     <a href="https://clotho.azharizzannada.chatgpt.site/"><img src="https://img.shields.io/badge/OPEN_LIVE_CLOTHO-7A1F3D?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Open live CLOTHO"></a>
     <a href="https://webmcp.devpost.com/"><img src="https://img.shields.io/badge/WEBMCP_HACKATHON-171715?style=for-the-badge" alt="WebMCP hackathon"></a>
@@ -71,7 +72,7 @@ CLOTHO asks a more practical question:
 
 ## What CLOTHO does
 
-CLOTHO is a local-first wardrobe planner for turning a small owned wardrobe into reviewable outfit decisions. It keeps the clothing visual, the recommendation deterministic, the calendar editable, and the agent boundary explicit.
+CLOTHO (Classy Looks for Occasion, Taste, History &amp; Outfits) is a local-first wardrobe planner for turning a small owned wardrobe into reviewable outfit decisions. It keeps the clothing visual, the recommendation deterministic, the calendar editable, and the agent boundary explicit.
 
 | Everyday friction | CLOTHO's answer |
 | --- | --- |

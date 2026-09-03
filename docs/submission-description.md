@@ -1,19 +1,19 @@
 <p align="center">
-  <img src="assets/clotho-readme-banner.png" alt="CLOTHO — wardrobe intelligence, made visible" width="100%">
+  <img src="https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-readme-banner.png" alt="CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits" width="100%">
 </p>
 
 <div align="center">
   <strong>One wardrobe. A changing week. One decision system.</strong><br>
   <a href="https://clotho.azharizzannada.chatgpt.site/">Open the live product</a> ·
-  <a href="../README.md">Read the repository</a> ·
+  <a href="https://github.com/azharizz/clotho/blob/main/README.md">Read the repository</a> ·
   <a href="https://webmcp.devpost.com/">WebMCP hackathon</a>
 </div>
 
-# CLOTHO
+# CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits
 
 ## The short version
 
-CLOTHO turns an owned wardrobe into a local-first, agent-ready decision system.
+CLOTHO (Classy Looks for Occasion, Taste, History &amp; Outfits) turns an owned wardrobe into a local-first, agent-ready decision system.
 An agent can search, constrain, plan, recolor, schedule, remember, import, and
 export. The person can inspect every result and decide what becomes durable.
 
@@ -52,7 +52,7 @@ the path a judge can repeat: see today's look, inspect the wardrobe, ask for a
 bounded batch, plan a week, inspect the calendar, and preview a recolor.
 
 <p align="center">
-  <img src="assets/clotho-product-walkthrough.gif" alt="CLOTHO live walkthrough: Today, Wardrobe, Batch, Week plan, Calendar, and Recolor" width="100%">
+  <img src="https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-product-walkthrough.gif" alt="CLOTHO live walkthrough: Today, Wardrobe, Batch, Week plan, Calendar, and Recolor" width="100%">
 </p>
 
 | 01 / Today | 02 / Wardrobe | 03 / Batch |
@@ -120,10 +120,10 @@ Open-Meteo supplies cached NYC weather. The optional image bridge reads a
 public temporary grid URL; CLOTHO does not upload wardrobe data to TmpFiles.
 
 <p align="center">
-  <img src="../public/assets/diagrams/clotho-production-architecture.gif" alt="CLOTHO production architecture: browser, managed chatgpt.site app, local state, Open-Meteo, and optional image bridge" width="100%">
+  <img src="https://raw.githubusercontent.com/azharizz/clotho/main/public/assets/diagrams/clotho-production-architecture.gif" alt="CLOTHO production architecture: browser, managed chatgpt.site app, local state, Open-Meteo, and optional image bridge" width="100%">
 </p>
 
-<p align="center"><a href="../public/assets/diagrams/clotho-production-architecture.drawio">Open the editable production architecture in Draw.io →</a></p>
+<p align="center"><a href="https://github.com/azharizz/clotho/blob/main/public/assets/diagrams/clotho-production-architecture.drawio">Open the editable production architecture in Draw.io →</a></p>
 
 ## Architecture: the WebMCP human loop
 
@@ -132,10 +132,10 @@ options and reasons, the person reviews them, and only an explicit product
 action changes local calendar state.
 
 <p align="center">
-  <img src="../public/assets/diagrams/clotho-webmcp-human-loop.gif" alt="CLOTHO WebMCP human loop: request, orchestrate, propose, review, explicitly write, and keep editing" width="100%">
+  <img src="https://raw.githubusercontent.com/azharizz/clotho/main/public/assets/diagrams/clotho-webmcp-human-loop.gif" alt="CLOTHO WebMCP human loop: request, orchestrate, propose, review, explicitly write, and keep editing" width="100%">
 </p>
 
-<p align="center"><a href="../public/assets/diagrams/clotho-webmcp-human-loop.drawio">Open the editable WebMCP human-loop diagram in Draw.io →</a></p>
+<p align="center"><a href="https://github.com/azharizz/clotho/blob/main/public/assets/diagrams/clotho-webmcp-human-loop.drawio">Open the editable WebMCP human-loop diagram in Draw.io →</a></p>
 
 ## Honest limits
 
@@ -150,7 +150,7 @@ action changes local calendar state.
 ## Try it
 
 - **Live app:** <https://clotho.azharizzannada.chatgpt.site/>
-- **Repository README:** [CLOTHO README](../README.md)
+- **Repository README:** [CLOTHO README](https://github.com/azharizz/clotho/blob/main/README.md)
 - **Hackathon:** <https://webmcp.devpost.com/>
 
 Suggested judge path: open **Week plan**, request seven days and all three
@@ -166,4 +166,4 @@ outfit engine · Open-Meteo · browser `localStorage` · browser canvas
 ## Source and license
 
 Source code is licensed under Apache-2.0. Wardrobe images are synthetic test
-assets. See the repository [LICENSE](../LICENSE).
+assets. See the repository [LICENSE](https://github.com/azharizz/clotho/blob/main/LICENSE).

@@ -45,7 +45,15 @@ function toBase64(bytes: Uint8Array) {
 async function readAsset(request: Request, path: string) {
   const response = await fetch(new URL(path, request.url), { cache: 'no-store' });
   if (!response.ok) throw new Error('Catalog image unavailable.');
-  const contentType = (response.headers.get('content-type') ?? 'image/webp').split(';')[0].toLowerCase();
+  const declaredContentType = (response.headers.get('content-type') ?? '').split(';')[0].toLowerCase();
+  // The managed chatgpt.site static layer serves these known .webp assets as
+  // application/octet-stream. Keep the asset validation, but derive the
+  // expected image type from the route-owned catalog path in that case.
+  const contentType = declaredContentType.startsWith('image/')
+    ? declaredContentType
+    : path.toLowerCase().endsWith('.webp')
+      ? 'image/webp'
+      : '';
   if (!contentType.startsWith('image/')) throw new Error('Catalog asset is not an image.');
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error('Catalog image is too large.');
