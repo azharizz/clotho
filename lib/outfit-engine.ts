@@ -412,14 +412,25 @@ export function buildOutfitBatch(
   constraints: OutfitConstraints = {},
 ) {
   if (!Number.isInteger(count) || count < 1 || count > 30) throw new Error('count must be an integer from 1 to 30.');
-  const results: Outfit[] = [];
-  const combinations = new Set<string>();
-  for (let attempt = 0; results.length < count && attempt < count * 20; attempt += 1) {
-    const outfit = buildOutfit(items, occasion, preferences, recentItemIds, `${seed}:${attempt}`, constraints);
-    const combination = outfit.items.map((item) => item.id).sort().join(':');
-    if (combinations.has(combination)) continue;
-    combinations.add(combination);
-    results.push(outfit);
-  }
-  return results;
+  const resolved = resolveConstraints(items, constraints);
+  const avoid = preferences.avoid.trim().toLowerCase();
+  const categories: Category[] = preferences.includeHeadwear || resolved.requiredCategories.has('headwear')
+    ? ['tops', 'bottoms', 'shoes', 'headwear']
+    : ['tops', 'bottoms', 'shoes'];
+  const candidates = categories.map((category) => {
+    const required = resolved.requiredItems.find((item) => item.category === category);
+    if (required) return [required];
+    return items.filter((item) => item.category === category && !resolved.excludedIds.has(item.id) && (!avoid || !phrase(item).includes(avoid)));
+  });
+  if (candidates.some((group) => !group.length)) return [];
+
+  const combinations = candidates.reduce<WardrobeItem[][]>((sets, group) => sets.flatMap((set) => group.map((item) => [...set, item])), [[]]);
+  return combinations
+    .map((selected) => {
+      const outfit = buildCustomOutfit(items, Object.fromEntries(selected.map((item) => [item.category, item.id])), occasion, preferences, recentItemIds, seed);
+      const tone = outfit.items.filter((item) => colorFamily(item.color) === 'neutral').length >= 2 ? 'quiet contrast' : 'confident color';
+      return { ...outfit, title: `${occasion[0].toUpperCase()}${occasion.slice(1)}, with ${tone}`, reason: `${tone}; favors ${occasion} pieces and items outside recent wear history` };
+    })
+    .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
+    .slice(0, count);
 }

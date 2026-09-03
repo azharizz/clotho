@@ -35,7 +35,9 @@ assert.ok(occasionFit(oversizedHoodie, 'casual') > occasionFit(oversizedHoodie, 
 assert.throws(() => occasionFit({ ...tailoredTrousers, occasionProfile: undefined }, 'work'), /missing its occasion profile/, 'profile-less items should not use legacy keyword scoring');
 const batch = buildOutfitBatch(manifest.items, 'dinner', preferences, [], 6, 'batch-demo');
 const nextBatch = buildOutfitBatch(manifest.items, 'dinner', preferences, [], 6, 'batch-demo-next');
+const fullBatch = buildOutfitBatch(manifest.items, 'dinner', preferences, [], 30, 'batch-full');
 assert.equal(batch.length, 6);
+assert.equal(fullBatch.length, 30, 'batch generation should return the requested top 30 when 30 valid combinations exist');
 assert.equal(new Set(batch.map((outfit) => outfit.items.map((item) => item.id).sort().join(':'))).size, 6);
 assert.notDeepEqual(nextBatch.map((outfit) => outfit.id), batch.map((outfit) => outfit.id), 'different variation seeds should surface a different batch');
 const constrainedBatch = buildOutfitBatch(manifest.items, 'casual', preferences, [], 3, 'constraint-batch', { requiredItemIds: ['bottom-01'], excludedItemIds: ['shoes-00'] });
