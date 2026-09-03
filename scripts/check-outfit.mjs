@@ -41,7 +41,7 @@ assert.notDeepEqual(nextBatch.map((outfit) => outfit.id), batch.map((outfit) => 
 const constrainedBatch = buildOutfitBatch(manifest.items, 'casual', preferences, [], 3, 'constraint-batch', { requiredItemIds: ['bottom-01'], excludedItemIds: ['shoes-00'] });
 assert.equal(constrainedBatch.every((outfit) => outfit.items.some((item) => item.id === 'bottom-01')), true, 'required items should appear in every batch result');
 assert.equal(constrainedBatch.every((outfit) => !outfit.items.some((item) => item.id === 'shoes-00')), true, 'excluded items should stay out of every batch result');
-assert.throws(() => buildOutfitBatch(manifest.items, 'work', preferences, [], 13, 'bad'), /1 to 12/);
+assert.throws(() => buildOutfitBatch(manifest.items, 'work', preferences, [], 31, 'bad'), /1 to 30/);
 assert.throws(() => buildOutfit(manifest.items, 'work', preferences, [], 'bad-required', { requiredItemIds: ['top-00', 'top-01'] }), /one required item per category/);
 const variant = { ...manifest.items.find((item) => item.id === 'top-00'), id: 'top-00--7a1f3d', color: '#7A1F3D', variantOf: 'top-00', variantColor: '#7A1F3D', imageSrc: '/test/variant.png' };
 const variantCatalog = [...manifest.items, variant];

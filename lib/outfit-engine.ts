@@ -411,7 +411,7 @@ export function buildOutfitBatch(
   seed: string,
   constraints: OutfitConstraints = {},
 ) {
-  if (!Number.isInteger(count) || count < 1 || count > 12) throw new Error('count must be an integer from 1 to 12.');
+  if (!Number.isInteger(count) || count < 1 || count > 30) throw new Error('count must be an integer from 1 to 30.');
   const results: Outfit[] = [];
   const combinations = new Set<string>();
   for (let attempt = 0; results.length < count && attempt < count * 20; attempt += 1) {

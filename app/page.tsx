@@ -871,15 +871,17 @@ export default function Home() {
     register({
       name: 'import_image_url',
       title: 'Import an image URL for the wardrobe',
-      description: 'Import a wardrobe grid from a client-provided temporary HTTPS URL. First, the AI agent must turn an outfit photo into one clean 2×2 catalog image: Top in the top-left, Bottom in the top-right, Shoes in the bottom-left, and Headwear in the bottom-right when present (otherwise leave that cell empty and set includeHeadwear false). Upload that grid to temporary hosting such as TmpFiles, then pass its returned https://tmpfiles.org/{id}/{name} upload-page URL here. Include one complete metadata record per extracted crop: name, color, style, and occasion profile. CLOTHO cannot read a ChatGPT attachment or local filesystem path directly. Set autoAccept true only when the user has asked to save the extracted pieces without manual review; otherwise CLOTHO shows the crop preview and waits.',
+      description: 'Import and optionally save an already-prepared CLOTHO wardrobe grid. Before calling this tool, the client/AI agent must (1) turn the outfit photo into one clean 2×2 catalog image with no person, body, or text, (2) upload that grid outside WebMCP to temporary HTTPS hosting such as TmpFiles, and (3) pass the returned https://tmpfiles.org/{id}/{name} upload-page URL (or its /dl/ image URL) here. This tool does not upload to TmpFiles and cannot read ChatGPT attachments, local filesystem paths, file:// URLs, blob: URLs, data: URLs, or base64 directly. Grid positions are fixed: Top=top-left, Bottom=top-right, Shoes=bottom-left, Headwear=bottom-right. Set includeHeadwear true only when the bottom-right cell contains headwear; set it false only when that cell is intentionally blank. Pass exactly one metadata record for every included category (3 records without headwear, 4 with headwear); array order does not matter. Each record needs a category, name, color, style, and occasionProfile.formality/activity from 1–5; occasionProfile.occasions is optional. Set autoAccept true only after the user explicitly asks to save: it saves the extracted pieces immediately in this browser with no review step. If autoAccept is omitted or false, CLOTHO returns a crop preview and waits for confirmation.',
       inputSchema: {
         type: 'object',
         properties: {
-          imageUrl: { type: 'string', format: 'uri', description: 'The temporary HTTPS upload-page URL for the already-prepared 2×2 wardrobe grid, preferably returned by TmpFiles.' },
-          includeHeadwear: { type: 'boolean', description: 'Keep the bottom-right cell as Headwear (true for 4 pieces, false for Top/Bottom/Shoes only).' },
+          imageUrl: { type: 'string', format: 'uri', description: 'Required public HTTPS URL for the already-prepared 2×2 grid: a TmpFiles upload-page URL such as https://tmpfiles.org/{id}/{name}, or its direct /dl/ image URL. Do not pass a local path, file://, blob:, data:, or base64 value.' },
+          includeHeadwear: { type: 'boolean', description: 'Required layout choice. true means the bottom-right cell is Headwear and items must contain 4 records; false means the bottom-right cell is blank and items must contain exactly Top, Bottom, and Shoes (3 records).' },
           items: {
             type: 'array',
-            description: 'One complete wardrobe metadata record for each extracted category. Use Top, Bottom, Shoes, and Headwear when includeHeadwear is true; otherwise omit Headwear.',
+            minItems: 3,
+            maxItems: 4,
+            description: 'Required metadata, exactly one record per included grid category. Use category values tops, bottoms, shoes, and headwear; the array order does not matter. Use 4 records when includeHeadwear is true and exactly 3 records (omit headwear) when false.',
             items: {
               type: 'object',
               properties: {
@@ -888,6 +890,7 @@ export default function Home() {
                 color: { type: 'string', description: 'A recognized color name or #RRGGBB value used for color matching.' },
                 style: { type: 'string' },
                 occasionProfile: {
+                  description: 'Scoring metadata. formality and activity are required integers from 1 (low) to 5 (high); occasions is optional and may contain any supported occasion tags.',
                   type: 'object',
                   properties: {
                     formality: { type: 'integer', minimum: 1, maximum: 5 },
@@ -902,7 +905,7 @@ export default function Home() {
               additionalProperties: false,
             },
           },
-          autoAccept: { type: 'boolean', description: 'When true, immediately save the extracted 3 or 4 pieces into this browser’s wardrobe after a successful import. Use only with the user’s explicit save instruction.' },
+          autoAccept: { type: 'boolean', description: 'Optional safety switch. true immediately saves all extracted pieces into this browser’s local wardrobe after the image is fetched and cropped; false or omitted returns the crop preview and requires a later commit_wardrobe_items confirmation. Set true only when the user explicitly asked to save.' },
         },
         required: ['imageUrl', 'includeHeadwear', 'items'],
         additionalProperties: false,
@@ -1120,13 +1123,13 @@ export default function Home() {
     register({
       name: 'generate_outfit_batch',
       title: 'Generate an outfit batch',
-      description: 'Generate and visibly display 1 to 12 distinct wardrobe outfits for one dated request without image generation. Required item IDs appear in every result; excluded IDs never appear.',
+      description: 'Generate and visibly display 1 to 30 distinct wardrobe outfits for one dated request without image generation. Required item IDs appear in every result; excluded IDs never appear. The result count is a requested upper bound: the engine may return fewer if the wardrobe cannot produce that many unique combinations.',
       inputSchema: {
         type: 'object',
         properties: {
           occasion: { type: 'string', enum: ['work', 'casual', 'dinner', 'event'] },
           date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-          count: { type: 'integer', minimum: 1, maximum: 12 },
+          count: { type: 'integer', minimum: 1, maximum: 30, description: 'Number of distinct outfit options to request. Use 1–30; fewer may be returned when the wardrobe has fewer unique combinations.' },
           palette: { type: 'string', enum: ['balanced', 'neutral', 'colorful'] },
           includeHeadwear: { type: 'boolean' },
           avoid: { type: 'string' },
@@ -1145,7 +1148,7 @@ export default function Home() {
         const nextOccasion = validOccasion(values.occasion);
         const nextDate = values.date === undefined ? state.date : validIsoDate(values.date);
         const count = Number(values.count);
-        if (!Number.isInteger(count) || count < 1 || count > 12) throw new Error('count must be an integer from 1 to 12.');
+        if (!Number.isInteger(count) || count < 1 || count > 30) throw new Error('count must be an integer from 1 to 30.');
         const requiredItemIds = validItemIdList(values.requiredItemIds, 'requiredItemIds');
         const excludedItemIds = validItemIdList(values.excludedItemIds, 'excludedItemIds');
         const nextPreferences = {
@@ -1574,7 +1577,7 @@ export default function Home() {
           <div className="section-heading"><div><p className="eyebrow">Batch studio</p><h2>One request. Several ways to dress.</h2></div><p>Each click advances a variation seed, so the same request can surface new combinations without generated images or per-look API cost.</p></div>
           <div className="mt-8 grid gap-x-10 md:grid-cols-2">
             <label className="field-line"><span>Occasion</span><select value={occasion} onChange={(event) => setOccasion(event.target.value as Occasion)}>{Object.entries(occasionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            <label className="field-line"><span>Outputs</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}>{[3, 6, 9, 12].map((count) => <option key={count} value={count}>{count} looks</option>)}</select></label>
+            <label className="field-line"><span>Outputs</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}>{[3, 6, 9, 12, 18, 24, 30].map((count) => <option key={count} value={count}>{count} looks</option>)}</select></label>
           </div>
           <button className="text-link mt-7" onClick={() => generateBatch()} type="button">Generate fitting batch →</button>
           {batchLooks.length ? <div className="batch-grid mt-10">{batchLooks.map((outfit, index) => <article className="batch-card" key={outfit.id}>

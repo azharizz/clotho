@@ -27,12 +27,12 @@ Open `http://localhost:3000`. WebMCP is available when the site is opened in Cha
 
 ## Temporary URL import
 
-The image-import panel starts with a generic image URL field for the client bridge. The agent first turns an outfit photo into a clean 2×2 catalog grid, uploads that grid to temporary hosting, then passes its HTTPS URL to `import_image_url`. CLOTHO's same-origin bridge resolves the temporary upload page and reads the image so browser canvas cropping remains possible. CLOTHO does not upload the client's image itself.
+The image-import panel starts with a generic image URL field for the client bridge. The client/AI agent must first turn an outfit photo into a clean 2×2 catalog grid, upload that grid outside WebMCP to temporary hosting, then pass its HTTPS upload-page (or direct `/dl/`) URL to `import_image_url`. CLOTHO's same-origin bridge resolves the TmpFiles URL and reads the image so browser canvas cropping remains possible; CLOTHO does not upload to TmpFiles itself and cannot read ChatGPT attachments, local paths, `file://`, `blob:`, `data:`, or base64 values directly.
 
 ```text
-agent creates 2×2 catalog grid + one metadata record per crop → temporary HTTPS URL
+agent creates 2×2 catalog grid + exactly 3/4 metadata records → temporary HTTPS URL
 → import_image_url({ imageUrl, includeHeadwear, items, autoAccept })
-→ fetch/crop the grid → preview or immediate local save
+→ CLOTHO fetches/crops the grid → preview + commit, or immediate local save when autoAccept=true
 ```
 
 This path is for synthetic or non-sensitive feasibility images only. Temporary hosting is public third-party storage; the link expires, and only confirmed crop previews are persisted locally.
