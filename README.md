@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/clotho-readme-banner.svg" alt="CLOTHO — wardrobe intelligence, made visible" width="100%">
+  <img src="docs/assets/clotho-readme-banner.png" alt="CLOTHO — wardrobe intelligence, made visible" width="100%">
 </p>
 
 <div align="center">
