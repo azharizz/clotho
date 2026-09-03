@@ -969,6 +969,54 @@ export default function Home() {
     });
 
     register({
+      name: 'export_outfit_reference',
+      title: 'Export a look reference',
+      description: 'Return a normal CLOTHO URL for a catalog-only outfit reference. Use referenceUrl to open the stacked image inline or downloadUrl for a traditional browser download. This does not generate an image and cannot expose browser-local imported or recolored files.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          outfitId: { type: 'string', description: 'Optional current, planned, history, or weekly-option outfit ID. Defaults to the visible outfit.' },
+          itemIds: { type: 'array', minItems: 3, maxItems: 4, uniqueItems: true, items: { type: 'string' }, description: 'Optional exact catalog item IDs. Provide Top, Bottom, Shoes, and optionally Headwear.' },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute(input) {
+        const state = live.current;
+        const values = asRecord(input);
+        const hasItemIds = values.itemIds !== undefined;
+        const requestedItemIds = hasItemIds ? validItemIdList(values.itemIds, 'itemIds') : [];
+        if (hasItemIds && (requestedItemIds.length < 3 || requestedItemIds.length > 4)) throw new Error('itemIds must contain Top, Bottom, Shoes, and optionally Headwear.');
+        const requestedOutfitId = values.outfitId === undefined ? undefined : validString(values.outfitId, 'outfitId').trim();
+        let sourceOutfit = state.look;
+        if (requestedOutfitId) {
+          sourceOutfit = [
+            state.look,
+            ...state.plans.map((plan) => plan.outfit),
+            ...state.history.map((entry) => entry.outfit),
+            ...state.weekOptions.flatMap((option) => option.entries.map((entry) => entry.outfit)),
+          ].find((candidate) => candidate?.id === requestedOutfitId) ?? null;
+          if (!sourceOutfit) throw new Error(`Unknown outfitId: ${requestedOutfitId}.`);
+        }
+        const selectedItems = hasItemIds
+          ? requestedItemIds.map((itemId) => state.items.find((item) => item.id === itemId))
+          : (sourceOutfit?.items ?? []);
+        if (selectedItems.some((item) => !item)) throw new Error('One or more itemIds are not in the current wardrobe.');
+        const orderedItems = outfitOrder.map((slot) => selectedItems.find((item) => item?.category === slot)).filter((item): item is WardrobeItem => Boolean(item));
+        if (orderedItems.length < 3 || !['tops', 'bottoms', 'shoes'].every((slot) => orderedItems.some((item) => item.category === slot))) throw new Error('A reference needs exactly one Top, Bottom, and Shoes, plus optional Headwear.');
+        const localOnly = orderedItems.filter((item) => item.imageSrc);
+        if (localOnly.length) throw new Error(`These pieces are browser-local and cannot have a static URL yet: ${localOnly.map((item) => item.id).join(', ')}.`);
+        const itemIds = orderedItems.map((item) => item.id);
+        const referenceParams = new URLSearchParams({ items: itemIds.join(',') });
+        const referenceUrl = `${window.location.origin}/outfit-reference?${referenceParams.toString()}`;
+        const downloadParams = new URLSearchParams({ items: itemIds.join(','), download: '1' });
+        const downloadUrl = `${window.location.origin}/outfit-reference?${downloadParams.toString()}`;
+        setStatus(`Static outfit reference ready. Download: ${downloadUrl}`);
+        return { outfitId: sourceOutfit?.id ?? null, itemIds, referenceUrl, downloadUrl, format: 'image/svg+xml', transport: 'static-http' };
+      },
+    });
+
+    register({
       name: 'schedule_outfit',
       title: 'Schedule an outfit',
       description: 'Create or replace one of up to three outfit plans for a date and time of day, save it locally, and show it in the month calendar.',
@@ -1653,7 +1701,7 @@ export default function Home() {
       {activePanel && <button className="panel-close text-link" onClick={() => setActivePanel(null)} type="button">Close panel ↘</button>}
       {activePanel && <button aria-label="Close by clicking outside the panel" className="panel-backdrop" onClick={() => setActivePanel(null)} type="button" />}
 
-      <footer className="border-t border-black/10 px-5 py-10 md:px-10 lg:px-16"><div className="mx-auto flex max-w-[1372px] flex-col justify-between gap-6 text-[10px] uppercase tracking-[.13em] text-black/45 sm:flex-row"><p>CLOTHO · Classy Looks for Occasion, Taste, History &amp; Outfits</p><p>WebMCP: search · suggest · batch · week · apply · schedule · remove · weather · record · prefer · recolor · import · commit</p></div></footer>
+      <footer className="border-t border-black/10 px-5 py-10 md:px-10 lg:px-16"><div className="mx-auto flex max-w-[1372px] flex-col justify-between gap-6 text-[10px] uppercase tracking-[.13em] text-black/45 sm:flex-row"><p>CLOTHO · Classy Looks for Occasion, Taste, History &amp; Outfits</p><p>WebMCP: search · suggest · export · batch · week · apply · schedule · remove · weather · record · prefer · recolor · import · commit</p></div></footer>
       <output aria-live="polite" className="sr-only">{status}</output>
     </main>
   );

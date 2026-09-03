@@ -23,7 +23,9 @@ Open `http://localhost:3000`. WebMCP is available when the site is opened in Cha
 - Wear history, taste preferences, free-form taste notes, and local browser persistence.
 - Batch outfit generation and review-first weekly planning with conflict/trade-off explanations.
 - Browser-canvas recoloring in the Recolor lab and Occasion lens; inline previews are accepted into persistent wardrobe variants when a wear is recorded.
-- WebMCP tools for searching, suggesting, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, recoloring, importing a client-provided HTTPS image URL, and saving a reviewed wardrobe grid.
+- WebMCP tools for searching, suggesting, exporting a conventional outfit reference URL, scheduling, listing/removing, recording, preferring, batching, weekly planning, applying plans, recoloring, importing a client-provided HTTPS image URL, and saving a reviewed wardrobe grid.
+
+`export_outfit_reference` returns a normal URL for a catalog-only look: `referenceUrl` opens the stacked SVG inline, while `downloadUrl` uses a conventional browser download. Browser-local imported and recolored images are intentionally rejected because they do not have a server-visible static asset.
 
 ## Temporary URL import
 
