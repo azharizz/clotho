@@ -2,15 +2,6 @@
   <img src="https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-readme-banner.png" alt="CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits" width="100%">
 </p>
 
-<div align="center">
-  <strong>CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits</strong><br>
-  One wardrobe. A changing week. One decision system.<br>
-  <a href="https://clotho.azharizzannada.chatgpt.site/">Open the live product</a> ·
-  <a href="https://github.com/azharizz/clotho/blob/main/README.md">Read the repository</a> ·
-  <a href="https://github.com/azharizz/clotho/blob/main/docs/assets/clotho-readme-banner.svg">Banner SVG source</a> ·
-  <a href="https://webmcp.devpost.com/">WebMCP hackathon</a>
-</div>
-
 # CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits
 
 ## The short version
@@ -62,13 +53,10 @@ The first moves through Wardrobe, Week plan, and Recolor. The second opens
 Calendar and inspects the planned moments. The table below documents all eight
 live capabilities, including Image import and Export reference.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-product-walkthrough.gif" alt="CLOTHO live walkthrough showing Wardrobe, Week plan, and Recolor" width="100%">
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-calendar-walkthrough.gif" alt="CLOTHO live Calendar walkthrough showing planned morning, day, and evening outfits" width="100%">
-</p>
+| 1. Overview features | 2. Calendar and planned moments |
+| --- | --- |
+| ![CLOTHO live walkthrough showing Wardrobe, Week plan, and Recolor](https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-product-walkthrough.gif) | ![CLOTHO live Calendar walkthrough showing planned morning, day, and evening outfits](https://raw.githubusercontent.com/azharizz/clotho/main/docs/assets/clotho-calendar-walkthrough.gif) |
+| Inspect the wardrobe, compare weekly strategies, and preview a recolor. | Review scheduled morning, day, and evening outfits in the calendar. |
 
 | Product capability | What it does |
 | --- | --- |
@@ -195,16 +183,6 @@ dayparts, review the three strategies, apply one, inspect **Calendar**, then
 try **Recolor**, **Batch**, and **Image import**. Finish by using
 `export_outfit_reference` to open the current look. The live site exposes the
 same product states and WebMCP boundaries described here.
-
-## Submission checklist
-
-| Requirement | Evidence | Status |
-| --- | --- | --- |
-| Working public URL | [Live CLOTHO](https://clotho.azharizzannada.chatgpt.site/) runs in ChatGPT's in-app browser and Chrome with WebMCP testing enabled. | Ready |
-| Human description answering all four required questions | Sections 1–4 above answer fit, experience, collaboration, and implementation directly. | Ready |
-| Public source with required code and assets | [GitHub repository](https://github.com/azharizz/clotho) contains the app, catalog, diagrams, setup instructions, and verification scripts. | Ready |
-| Detectable open-source license | Root [Apache-2.0 license](https://github.com/azharizz/clotho/blob/main/LICENSE), detected by GitHub. | Ready |
-| Public YouTube demo under three minutes with audio | Upload the final narrated demo and paste its URL into Devpost. | **Required before submission** |
 
 ## Built with
 

@@ -98,9 +98,10 @@ CLOTHO (Classy Looks for Occasion, Taste, History &amp; Outfits) is a local-firs
 
 These two recordings come from the deployed product, not a mocked dashboard. The first moves through Wardrobe, Week plan, and Recolor. The second opens Calendar and inspects the planned moments. The table below documents all eight live capabilities.
 
-![CLOTHO live walkthrough showing Wardrobe, Week plan, and Recolor](docs/assets/clotho-product-walkthrough.gif)
-
-![CLOTHO live Calendar walkthrough showing planned morning, day, and evening outfits](docs/assets/clotho-calendar-walkthrough.gif)
+| 1. Overview features | 2. Calendar and planned moments |
+| --- | --- |
+| ![CLOTHO live walkthrough showing Wardrobe, Week plan, and Recolor](docs/assets/clotho-product-walkthrough.gif) | ![CLOTHO live Calendar walkthrough showing planned morning, day, and evening outfits](docs/assets/clotho-calendar-walkthrough.gif) |
+| Inspect the wardrobe, compare weekly strategies, and preview a recolor. | Review scheduled morning, day, and evening outfits in the calendar. |
 
 | Product capability | What it demonstrates |
 | --- | --- |
