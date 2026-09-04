@@ -69,6 +69,12 @@ const handoffGrid = [
   { category: 'bottoms' as const, label: 'Bottom', column: 1, row: 0 },
   { category: 'shoes' as const, label: 'Shoes', column: 0, row: 1 },
 ];
+const localReferenceLayout: Record<Category, { x: number; y: number; width: number; height: number }> = {
+  headwear: { x: 250, y: 35, width: 300, height: 225 },
+  tops: { x: 115, y: 195, width: 570, height: 390 },
+  bottoms: { x: 135, y: 530, width: 530, height: 475 },
+  shoes: { x: 120, y: 970, width: 560, height: 190 },
+};
 
 function imagePath(item: WardrobeItem) {
   return item.imageSrc ?? `/items/${item.file}`;
@@ -78,6 +84,27 @@ function cleanImagePath(item: WardrobeItem) {
   if (item.imageSrc) return item.imageSrc;
   const [category, file] = item.file.split('/');
   return `/items/clean/${category}/${file.replace(/\.png$/i, '.webp')}?v=2`;
+}
+
+function escapeXml(value: string) {
+  return value.replace(/[<>&'"]/g, (character) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[character] ?? character);
+}
+
+function createBrowserLocalReference(items: WardrobeItem[]) {
+  const labels = items.map((item) => escapeXml(item.id)).join(' · ');
+  const imageNodes = items.map((item) => {
+    if (!item.imageSrc) throw new Error(`The ${item.name} image is unavailable for a browser-local reference.`);
+    const placement = localReferenceLayout[item.category];
+    return `<image href="${escapeXml(item.imageSrc)}" x="${placement.x}" y="${placement.y}" width="${placement.width}" height="${placement.height}" preserveAspectRatio="xMidYMid meet" />`;
+  }).join('');
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200" role="img" aria-labelledby="title description">
+  <title id="title">CLOTHO outfit reference</title>
+  <desc id="description">${labels}</desc>
+  <rect width="800" height="1200" fill="#fcfbf8" />
+  ${imageNodes}
+</svg>`;
+  return URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
 }
 
 async function inspectHandoffBlob(blob: Blob, source: string, declaredType = '') {
@@ -987,7 +1014,7 @@ export default function Home() {
     register({
       name: 'export_outfit_reference',
       title: 'Export a look reference',
-      description: 'Return a normal CLOTHO URL for a catalog-only outfit reference. Use referenceUrl to open the stacked image inline or downloadUrl for a traditional browser download. This does not generate an image and cannot expose browser-local imported or recolored files.',
+      description: 'Return a CLOTHO outfit reference URL. Bundled catalog looks use a normal static HTTP URL; imported or recolored looks use a browser-local SVG URL. Use referenceUrl to open the stacked image inline or downloadUrl for a traditional browser download.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1020,9 +1047,12 @@ export default function Home() {
         if (selectedItems.some((item) => !item)) throw new Error('One or more itemIds are not in the current wardrobe.');
         const orderedItems = outfitOrder.map((slot) => selectedItems.find((item) => item?.category === slot)).filter((item): item is WardrobeItem => Boolean(item));
         if (orderedItems.length < 3 || !['tops', 'bottoms', 'shoes'].every((slot) => orderedItems.some((item) => item.category === slot))) throw new Error('A reference needs exactly one Top, Bottom, and Shoes, plus optional Headwear.');
-        const localOnly = orderedItems.filter((item) => item.imageSrc);
-        if (localOnly.length) throw new Error(`These pieces are browser-local and cannot have a static URL yet: ${localOnly.map((item) => item.id).join(', ')}.`);
         const itemIds = orderedItems.map((item) => item.id);
+        if (orderedItems.some((item) => item.imageSrc)) {
+          const referenceUrl = createBrowserLocalReference(orderedItems);
+          setStatus('Browser-local outfit reference ready.');
+          return { outfitId: sourceOutfit?.id ?? null, itemIds, referenceUrl, downloadUrl: referenceUrl, format: 'image/svg+xml', transport: 'browser-local' };
+        }
         const referenceParams = new URLSearchParams({ items: itemIds.join(',') });
         const referenceUrl = `${window.location.origin}/outfit-reference?${referenceParams.toString()}`;
         const downloadParams = new URLSearchParams({ items: itemIds.join(','), download: '1' });
