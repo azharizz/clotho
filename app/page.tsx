@@ -93,9 +93,9 @@ function escapeXml(value: string) {
 function createBrowserLocalReference(items: WardrobeItem[]) {
   const labels = items.map((item) => escapeXml(item.id)).join(' · ');
   const imageNodes = items.map((item) => {
-    if (!item.imageSrc) throw new Error(`The ${item.name} image is unavailable for a browser-local reference.`);
     const placement = localReferenceLayout[item.category];
-    return `<image href="${escapeXml(item.imageSrc)}" x="${placement.x}" y="${placement.y}" width="${placement.width}" height="${placement.height}" preserveAspectRatio="xMidYMid meet" />`;
+    const source = item.imageSrc ?? new URL(imagePath(item), window.location.origin).href;
+    return `<image href="${escapeXml(source)}" x="${placement.x}" y="${placement.y}" width="${placement.width}" height="${placement.height}" preserveAspectRatio="xMidYMid meet" />`;
   }).join('');
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200" role="img" aria-labelledby="title description">
