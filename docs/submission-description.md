@@ -4,6 +4,8 @@
 
 # CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits
 
+*CLOTHO is named for Clotho, the Greek Fate who began each life by spinning its thread. Here, the thread runs through your wardrobe and calendar, connecting what you own to the moments ahead while every final choice stays yours.*
+
 ## The short version
 
 CLOTHO (Classy Looks for Occasion, Taste, History &amp; Outfits) turns an owned wardrobe into a local-first, agent-ready decision system.
@@ -176,7 +178,6 @@ action changes local calendar state.
 
 - **Live app:** <https://clotho.azharizzannada.chatgpt.site/>
 - **Repository README:** [CLOTHO README](https://github.com/azharizz/clotho/blob/main/README.md)
-- **Hackathon:** <https://webmcp.devpost.com/>
 
 Suggested product path: open **Week plan**, request seven days and all three
 dayparts, review the three strategies, apply one, inspect **Calendar**, then

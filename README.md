@@ -5,6 +5,7 @@
 <div align="center">
   <p><strong>CLOTHO: Classy Looks for Occasion, Taste, History &amp; Outfits</strong></p>
   <p>One wardrobe. A changing week. One decision system.</p>
+  <p><em>CLOTHO is named for Clotho, the Greek Fate who began each life by spinning its thread. Here, the thread runs through your wardrobe and calendar, connecting what you own to the moments ahead while every final choice stays yours.</em></p>
   <p>
     <a href="https://clotho.azharizzannada.chatgpt.site/"><img src="https://img.shields.io/badge/OPEN_LIVE_CLOTHO-7A1F3D?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Open live CLOTHO"></a>
     <a href="https://webmcp.devpost.com/"><img src="https://img.shields.io/badge/WEBMCP_HACKATHON-171715?style=for-the-badge" alt="WebMCP hackathon"></a>
