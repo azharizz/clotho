@@ -30,14 +30,17 @@
 <summary><kbd>Contents</kbd></summary>
 
 - [At a glance](#-at-a-glance)
+- [The one-turn proof](#the-one-turn-proof)
 - [The problem](#the-problem)
 - [What CLOTHO does](#what-clotho-does)
 - [Product walkthrough](#product-walkthrough)
 - [Why WebMCP is the right interface](#why-webmcp-is-the-right-interface)
+- [Why CLOTHO stands out](#why-clotho-stands-out)
 - [Human and agent boundaries](#human-and-agent-boundaries)
 - [WebMCP tool surface](#webmcp-tool-surface)
 - [How it works](#how-it-works)
 - [Try the live app](#try-the-live-app)
+- [Submission checklist](#submission-checklist)
 - [Quick start](#-quick-start)
 - [Truth boundaries](#truth-boundaries)
 - [Repository map](#repository-map)
@@ -59,7 +62,15 @@
   </tr>
 </table>
 
-<p align="center"><sub>Designed for a person and an agent to make a decision together—not for an agent to silently take over.</sub></p>
+<p align="center"><sub>Designed for a person and an agent to make a decision together, not for an agent to silently take over.</sub></p>
+
+## The one-turn proof
+
+Ask CLOTHO:
+
+> Plan seven days from September 2 for morning, day, and evening. Use a balanced palette, include headwear, avoid orange, and give me three strategies. Do not apply anything until I choose.
+
+That one request coordinates preferences, 21 date/slot decisions, existing calendar occasions, cached weather, recent wear, wardrobe constraints, and three reviewable strategies. The agent does not return a paragraph for the person to rebuild manually. It operates the product, shows the options in CLOTHO, and waits at the write boundary. After the person chooses, one explicit `apply_week_plan` call writes the selected 21-slot strategy to the visible calendar.
 
 ## The problem
 
@@ -69,7 +80,7 @@ An agent can help, but only if it can operate a meaningful product surface. A sc
 
 CLOTHO asks a more practical question:
 
-> What can an agent do with the wardrobe—and where should the person remain in control?
+> What can an agent do with the wardrobe, and where should the person remain in control?
 
 ## What CLOTHO does
 
@@ -85,11 +96,13 @@ CLOTHO (Classy Looks for Occasion, Taste, History &amp; Outfits) is a local-firs
 
 ## Product walkthrough
 
-The walkthrough below is captured from the deployed product. It moves through the actual surfaces rather than a mocked dashboard.
+These two recordings come from the deployed product, not a mocked dashboard. The first moves through Wardrobe, Week plan, and Recolor. The second opens Calendar and inspects the planned moments. The table below documents all eight live capabilities.
 
-![CLOTHO live product walkthrough: Today, Wardrobe, Batch, Week plan, Calendar, and Recolor](docs/assets/clotho-product-walkthrough.gif)
+![CLOTHO live walkthrough showing Wardrobe, Week plan, and Recolor](docs/assets/clotho-product-walkthrough.gif)
 
-| Surface | What the capture proves |
+![CLOTHO live Calendar walkthrough showing planned morning, day, and evening outfits](docs/assets/clotho-calendar-walkthrough.gif)
+
+| Product capability | What it demonstrates |
 | --- | --- |
 | Today | Existing images are stacked into one look; the UI states that no composite person image is generated. |
 | Wardrobe | The owned catalog can be filtered and inspected without leaving the main editorial surface. |
@@ -97,6 +110,8 @@ The walkthrough below is captured from the deployed product. It moves through th
 | Week plan | A week is a set of reviewable options, not an invisible auto-schedule. |
 | Calendar | The chosen plan becomes durable, visible date/slot state. |
 | Recolor | A color change begins as a preview and stays separate from saving a wardrobe variant. |
+| Image import | A prepared public HTTPS 2×2 grid becomes reviewable wardrobe crops before anything is committed. |
+| Export reference | The current look becomes an openable visual reference without changing wardrobe or calendar state. |
 
 ## Why WebMCP is the right interface
 
@@ -111,6 +126,15 @@ WebMCP fits CLOTHO because outfit planning is a sequence of structured actions, 
 | Imported photos become an opaque AI step. | `import_image_url` previews a clean 2×2 grid; `commit_wardrobe_items` is the explicit persistence boundary. |
 
 The result is a better division of labor: the agent handles multi-step coordination, while the person supplies taste, approval, correction, and the final “this is what I will wear” decision.
+
+## Why CLOTHO stands out
+
+| What matters | What CLOTHO delivers |
+| --- | --- |
+| **WebMCP that does real work** | Fourteen registered tools cover search, constraints, preferences, batches, week planning, calendar reads and writes, wear history, import, recolor, and export. JSON schemas, read-only annotations, visible results, and separate preview and commit tools make this a working system rather than scripted UI automation. |
+| **A complete product loop** | The public app runs in ChatGPT's in-app browser and Chrome with WebMCP testing enabled. Its deterministic engine, 44-piece catalog, three-daypart calendar, cached weather, browser persistence, imports, recolors, and reference exports work together as one experience. |
+| **Less repetitive planning** | One request can produce three inspectable seven-day strategies covering 21 moments. The person can apply or edit the chosen plan instead of manually reconciling wardrobe, weather, calendar, taste, and repeat wear. |
+| **A different kind of wardrobe tool** | CLOTHO treats a wardrobe as shared decision state for a person and an agent. The interesting part is not outfit generation alone. It is the visible conversation between proposals, tradeoffs, reversible edits, and explicit durable writes. |
 
 ## Human and agent boundaries
 
@@ -133,13 +157,13 @@ The page registers 14 tools. They are intentionally grouped here by job rather t
 | Apply and edit | `apply_week_plan`, `schedule_outfit`, `remove_calendar_plan` | Writes visible calendar state; unrelated plans remain intact when a week is applied. |
 | Wear and remember | `record_wear` | Records the visible outfit and accepted inline recolor variants locally. |
 | Import safely | `import_image_url`, `commit_wardrobe_items` | Preview first, then commit reviewed crops from a public HTTPS 2×2 grid. |
-| Transform and export | `recolor_item`, `export_outfit_reference` | Recolor previews in a 512px browser canvas; export creates an 800×1200 SVG for bundled catalog pieces. |
+| Transform and export | `recolor_item`, `export_outfit_reference` | Recolor previews in a 512px browser canvas; export returns an 800×1200 SVG through static HTTP for bundled pieces or a browser-local URL for imported/recolored pieces. |
 
 ## How it works
 
 ### The production path
 
-This is the infrastructure that is actually running in the live demo—not a generic cloud reference architecture. The app is served from the managed `chatgpt.site` deployment configured in `.openai/hosting.json`; wardrobe state stays in the browser; Open-Meteo is the only live data provider; and the optional image bridge is same-origin code for a public temporary grid URL.
+This is the infrastructure that is actually running in the live demo, not a generic cloud reference architecture. The app is served from the managed `chatgpt.site` deployment configured in `.openai/hosting.json`; wardrobe state stays in the browser; Open-Meteo is the only live data provider; and the optional image bridge is same-origin code for a public temporary grid URL.
 
 <p align="center">
   <img src="public/assets/diagrams/clotho-production-architecture.gif" alt="CLOTHO real production architecture: browser agent, managed chatgpt.site app, local state, Open-Meteo, and optional TmpFiles" width="100%">
@@ -188,6 +212,17 @@ The WebMCP surface is available when the site is opened in ChatGPT's in-app brow
 5. Open **Calendar** to inspect the visible result; edit or remove one slot.
 6. Open **Recolor** and keep the preview separate from **Save as wardrobe variant**.
 7. Open **Batch** and request 30 looks; choose one with **Use look**.
+8. Open **Image import** to inspect the preview and commit boundary, then use `export_outfit_reference` to open the current look as a visual reference.
+
+## Submission checklist
+
+| Devpost requirement | CLOTHO evidence | Status |
+| --- | --- | --- |
+| Working live URL | [clotho.azharizzannada.chatgpt.site](https://clotho.azharizzannada.chatgpt.site/) loads publicly and registers the live WebMCP tool surface. | Ready |
+| Human text description | [Devpost-ready description](docs/submission-description.md) directly answers the four required questions and covers all four evaluation areas. | Ready |
+| Public source repository | [github.com/azharizz/clotho](https://github.com/azharizz/clotho) is public and includes source, assets, setup, and checks. | Ready |
+| Visible open-source license | [Apache-2.0](LICENSE) is present at the repository root and detected by GitHub. | Ready |
+| Public YouTube demo under three minutes, with audio | Record, upload publicly, and place the final URL in this README and the Devpost form. | **Required before submission** |
 
 ## ⚡ Quick start
 
@@ -220,7 +255,7 @@ npm run build
 - `import_image_url` requires a public HTTPS clean 2×2 grid with exact crop metadata. CLOTHO does not read ChatGPT attachments, local paths, `file://`, `blob:`, `data:`, or base64 values directly.
 - Import persistence is separate from preview; `commit_wardrobe_items` saves reviewed crops in this browser only.
 - Recolor is a low-resolution browser-canvas preview. Persistence requires an explicit save action.
-- `export_outfit_reference` supports bundled catalog IDs, not browser-local imports or recolored variants.
+- `export_outfit_reference` returns a normal static HTTP URL for bundled catalog pieces and a browser-local SVG URL for imported or recolored pieces; browser-local URLs are not portable across browsers or sessions.
 - Temporary image hosting is public third-party storage and should be used only for synthetic or non-sensitive feasibility images.
 
 ## Repository map
